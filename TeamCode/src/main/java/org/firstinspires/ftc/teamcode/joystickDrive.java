@@ -3,7 +3,7 @@ package org.firstinspires.ftc.teamcode;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 import com.qualcomm.robotcore.hardware.DcMotor;
-@TeleOp(name="teleop doua joystickuri")
+@TeleOp(name="teleop driving", group = "tank")
 public class joystickDrive extends OpMode {
     private DcMotor stanga,dreapta;
     @Override
