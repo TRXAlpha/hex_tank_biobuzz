@@ -1,10 +1,8 @@
 package org.firstinspires.ftc.teamcode;
 
-import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 import com.qualcomm.robotcore.hardware.DcMotor;
-import com.qualcomm.robotcore.hardware.DcMotorSimple;
 
 @TeleOp(name="teleop tank arcade", group="tank")
 public class arcadeTankDrive extends OpMode {
@@ -13,7 +11,8 @@ public class arcadeTankDrive extends OpMode {
     public void init() {
         stanga  = hardwareMap.get(DcMotor.class, "stanga");
         dreapta = hardwareMap.get(DcMotor.class, "dreapta");
-
+        stanga.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        dreapta.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         // Reverse the left motor so forward stick moves the robot forward
         stanga.setDirection(DcMotor.Direction.REVERSE);
         dreapta.setDirection(DcMotor.Direction.FORWARD);
