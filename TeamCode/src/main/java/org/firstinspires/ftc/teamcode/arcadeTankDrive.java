@@ -4,7 +4,7 @@ import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 import com.qualcomm.robotcore.hardware.DcMotor;
 
-@TeleOp(name="teleop tank arcade", group="tank")
+@TeleOp(name="teleop arcade", group="tank")
 public class arcadeTankDrive extends OpMode {
     private DcMotor stanga, dreapta;
     @Override
