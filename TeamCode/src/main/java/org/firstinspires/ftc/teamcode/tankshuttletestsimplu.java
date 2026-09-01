@@ -11,22 +11,20 @@ import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 
 @Config
-@Autonomous(name = "Tank Shuttle Test", group = "Test")
-public class TankShuttleTest extends OpMode {
+@Autonomous(name = "fata spate fata spate simplificat", group = "Test")
+public class tankshuttletestsimplu extends OpMode {
 
     public static double legDistance = 100.0;
     public static int cycles = 3;
 
-    public static double kPdrive = 0.013;
+    public static double kPdrive = 0.022;
     public static double minDrive = 0.15;
-    public static double maxDrive = 1;
+    public static double maxDrive = 0.5;
 
-    public static double kPturn = 0.04;
+    public static double kPturn = 0.02;
     public static double maxTurn = 0.3;
 
     public static double kCross = 1.5;
-
-    public static double kDdrive = 0.003;
 
     public static double posTolerance = 1.5;
     public static double settleTime = 0.25;
@@ -41,9 +39,6 @@ public class TankShuttleTest extends OpMode {
     private int leg;
     private double targetX;
     private boolean finished;
-    private boolean firstLoop;
-    private double prevTime;
-    private double previousError;
 
     @Override
     public void init() {
@@ -56,7 +51,7 @@ public class TankShuttleTest extends OpMode {
         stanga.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         dreapta.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
 
-        pinpoint.setOffsets(0, 55, DistanceUnit.MM);
+        pinpoint.setOffsets(-140, 60, DistanceUnit.MM);
         pinpoint.setEncoderResolution(GoBildaPinpointDriver.GoBildaOdometryPods.goBILDA_4_BAR_POD);
         pinpoint.setEncoderDirections(
                 GoBildaPinpointDriver.EncoderDirection.FORWARD,
@@ -72,9 +67,6 @@ public class TankShuttleTest extends OpMode {
         leg = 0;
         targetX = legDistance;
         finished = false;
-        firstLoop = true;
-        prevTime = 0.0;
-        previousError = 0.0;
         legTimer.reset();
         settleTimer.reset();
     }
@@ -98,21 +90,13 @@ public class TankShuttleTest extends OpMode {
         double error = targetX - x;
         double direction = Math.signum(error);
 
-        double now = legTimer.seconds();
-        double dt = now - prevTime;
-
         double desiredHeading = Range.clip(-kCross * y, -20, 20) * direction;
         double headingError = angleWrap(desiredHeading - heading);
         double turn = Range.clip(kPturn * headingError, -maxTurn, maxTurn);
 
-        double D = 0.0;
-        if (!firstLoop && dt > 0) {
-            D = (error - previousError) / dt;
-        }
-
         double drive = 0.0;
         if (Math.abs(error) > posTolerance) {
-            drive = direction * Range.clip(Math.abs(kPdrive * error + kDdrive * D), minDrive, maxDrive);
+            drive = direction * Range.clip(Math.abs(kPdrive * error), minDrive, maxDrive);
             settleTimer.reset();
         }
 
@@ -120,10 +104,6 @@ public class TankShuttleTest extends OpMode {
         double right = drive + turn;
         double norm = Math.max(1.0, Math.max(Math.abs(left), Math.abs(right)));
         setPower(left / norm, right / norm);
-
-        prevTime = now;
-        previousError = error;
-        firstLoop = false;
 
         telemetry.addData("Leg", "%d / %d", leg + 1, cycles * 2);
         telemetry.addData("X / target", "%.1f / %.1f cm", x, targetX);
@@ -148,9 +128,6 @@ public class TankShuttleTest extends OpMode {
             return;
         }
         targetX = (leg % 2 == 0) ? legDistance : 0.0;
-        firstLoop = true;
-        prevTime = 0.0;
-        previousError = 0.0;
         legTimer.reset();
         settleTimer.reset();
     }
