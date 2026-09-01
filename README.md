@@ -3,3 +3,7 @@
 
 plugin: ADB Wi-Fi by Yuri Polek
 parola hub: R0b0HEX19143
+
+
+
+factor de corectie putere: +0.017 pt motor dreapta, motor stanga este reversed

@@ -123,7 +123,7 @@ public class tankshuttletestsimplu extends OpMode {
     private void nextLeg() {
         setPower(0, 0);
         leg++;
-        if (leg >= cycles * 2) {
+        if (leg >= cycles ) {
             finished = true;
             return;
         }
