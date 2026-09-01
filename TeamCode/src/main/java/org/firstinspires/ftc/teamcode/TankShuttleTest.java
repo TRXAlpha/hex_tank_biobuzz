@@ -17,15 +17,16 @@ public class TankShuttleTest extends OpMode {
     public static double legDistance = 100;
     public static int cycles = 3;
 
-    public static double kPdrive = 0.022;
+    public static double kPdrive = 0.0070;
     public static double minDrive = 0.15;
-    public static double maxDrive = 0.5;
+    public static double maxDrive = 1;
 
-    public static double kPturn = 0.025;
-    public static double kDturn = 0.0015;
+    public static double kPturn = 0.04;
     public static double maxTurn = 0.3;
 
     public static double kCross = 1.5;
+
+    public static double kDdrive = 0.003;
 
     public static double posTolerance = 1.5;
     public static double settleTime = 0.25;
@@ -39,12 +40,12 @@ public class TankShuttleTest extends OpMode {
     private final ElapsedTime legTimer = new ElapsedTime();
     private final ElapsedTime settleTimer = new ElapsedTime();
 
-    private int leg;
+    private int distanta;
     private double targetX;
     private boolean finished;
-    private boolean firstLoop;
-    private double prevHeading;
     private double prevTime;
+
+    private double previousError = 0;
 
     @Override
     public void init() {
@@ -70,14 +71,13 @@ public class TankShuttleTest extends OpMode {
 
     @Override
     public void start() {
-        leg = 0;
+        distanta = 0;
         targetX = legDistance;
         finished = false;
-        firstLoop = true;
-        prevHeading = 0.0;
         prevTime = 0.0;
         legTimer.reset();
         settleTimer.reset();
+        previousError = 0;
     }
 
     @Override
@@ -100,29 +100,32 @@ public class TankShuttleTest extends OpMode {
         double direction = Math.signum(error);
 
         double now = legTimer.seconds();
-        double dt = Math.max(now - prevTime, 1e-4);
-        double headingRate = firstLoop ? 0.0 : (heading - prevHeading) / dt;
+
+        double dt = now - prevTime;
 
         double desiredHeading = Range.clip(-kCross * y, -MAX_CROSS_DEG, MAX_CROSS_DEG) * direction;
         double headingError = angleWrap(desiredHeading - heading);
-        double turn = Range.clip(kPturn * headingError - kDturn * headingRate, -maxTurn, maxTurn);
+        double turn = Range.clip(kPturn * headingError, -maxTurn, maxTurn);
+        double D = 0;
+
+        if (dt > 0) {
+            D = (error - previousError) / dt;
+        }
 
         double drive = 0.0;
         if (Math.abs(error) > posTolerance) {
-            drive = direction * Range.clip(Math.abs(kPdrive * error), minDrive, maxDrive);
+            drive = direction * Range.clip(Math.abs(kPdrive * error + kDdrive * D), minDrive, maxDrive);
             settleTimer.reset();
         }
 
         double left = drive - turn;
         double right = drive + turn;
-        double norm = Math.max(1.0, Math.max(Math.abs(left), Math.abs(right)));
-        setPower(left / norm, right / norm);
+        setPower(left , right);
 
-        prevHeading = heading;
         prevTime = now;
-        firstLoop = false;
+        previousError = error;
 
-        telemetry.addData("Leg", "%d / %d  %s", leg + 1, cycles * 2, leg % 2 == 0 ? "out" : "back");
+        telemetry.addData("Leg", "%d / %d  %s", distanta + 1, cycles * 2, distanta % 2 == 0 ? "out" : "back");
         telemetry.addData("X / target", "%.1f / %.1f cm", x, targetX);
         telemetry.addData("Cross track Y", "%.2f cm", y);
         telemetry.addData("Heading", "%.1f deg (err %.1f)", heading, headingError);
@@ -134,21 +137,16 @@ public class TankShuttleTest extends OpMode {
         if (settled || legTimer.seconds() >= legTimeout) nextLeg();
     }
 
-    @Override
-    public void stop() {
-        setPower(0, 0);
-    }
-
     private void nextLeg() {
         setPower(0, 0);
-        leg++;
-        if (leg >= cycles * 2) {
+        distanta++;
+        if (distanta >= cycles * 2) {
             finished = true;
             return;
         }
-        targetX = (leg % 2 == 0) ? legDistance : 0.0;
-        firstLoop = true;
+        targetX = (distanta % 2 == 0) ? legDistance : 0.0;
         prevTime = 0.0;
+        previousError = 0;
         legTimer.reset();
         settleTimer.reset();
     }
