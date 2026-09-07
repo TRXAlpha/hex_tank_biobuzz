@@ -1,4 +1,4 @@
-package org.firstinspires.ftc.teamcode;
+package org.firstinspires.ftc.teamcode.tuning;
 
 import com.acmerobotics.dashboard.config.Config;
 import com.qualcomm.hardware.gobilda.GoBildaPinpointDriver;
@@ -168,7 +168,7 @@ public class drivetanh extends OpMode {
     // ---------- Helpers ----------
     private void setPower(double left, double right) {
         stanga.setPower(left);
-        dreapta.setPower(right + 0.017);
+        dreapta.setPower(right );
     }
 
     private double angleWrap(double angle) {
