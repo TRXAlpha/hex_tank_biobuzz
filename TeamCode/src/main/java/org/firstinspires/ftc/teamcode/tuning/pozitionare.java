@@ -101,7 +101,9 @@ public class pozitionare extends OpMode {
         dreapta.setPower(drive + 0.017);
 
         return false;
-    }    public double headingPID(double targetHeadingRad) {
+    }
+
+    public double headingPID(double targetHeadingRad) {
         pinpoint.update(GoBildaPinpointDriver.ReadData.ONLY_UPDATE_HEADING);
 
         Pose2D pose = pinpoint.getPosition();
