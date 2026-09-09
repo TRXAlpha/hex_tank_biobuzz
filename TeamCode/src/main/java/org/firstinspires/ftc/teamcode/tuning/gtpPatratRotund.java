@@ -59,7 +59,7 @@ public class gtpPatratRotund extends LinearOpMode {
     static final double KP_TURN         = 0.010;  // putere motor per grad eroare unghi
     static final double KP_DRIVE        = 0.0035; // putere motor per mm distanta ramasa
     static final double MAX_POWER       = 0.7;
-    static final double MIN_TURN_POWER  = 0.15 ;   // putere minima ca sa invinga frecarea la rotire
+    static final double MIN_TURN_POWER  = 0.15;   // putere minima ca sa invinga frecarea la rotire
     static final double MIN_DRIVE_POWER = 0.4;   // putere minima ca sa invinga frecarea la deplasare
 
     // Raza (mm) la care controller-ul considera un colt intermediar "atins" si trece
