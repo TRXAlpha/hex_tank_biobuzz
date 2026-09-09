@@ -44,22 +44,15 @@ public class goToPoint extends OpMode {
     // ----- Hardware -----
     DcMotor leftDrive, rightDrive;
     private GoBildaPinpointDriver pinpoint;
-
-    // ----- Punct tinta -----
-    public static double TARGET_X_MM = 600.0;
-    public static double TARGET_Y_MM = 600.0;
-
-    // ----- Tolerante oprire -----
-    public static double DISTANCE_TOLERANCE_MM = 15.0;
-    static final double HEADING_TOLERANCE_DEG = 2.0;
-
-    // ----- Coeficienti proportionali (de reglat empiric pe robotul vostru) -----
-    public static double KP_TURN         = 0.020;  // putere motor per grad eroare unghi
-    public static double KP_DRIVE        = 0.0035; // putere motor per mm distanta ramasa
-    public static double MAX_POWER       = 0.30;
-    public static double MIN_TURN_POWER  = 0.12;   // putere minima ca sa invinga frecarea la rotire
-    public static double MIN_DRIVE_POWER = 0.15;   // putere minima ca sa invinga frecarea la deplasare
-    public static double HEADING_LOCK_DEG = 10.0;  // sub aceasta eroare de unghi incepe sa mearga inainte
+    public static double DISTANCE_TOLERANCE_MM = 10;
+    public static double HEADING_LOCK_DEG = 10;
+    public static double KP_DRIVE = 0.0035;
+    public static double KP_TURN = 0.02;
+    public static double MAX_POWER = 0.75;
+    public static double MIN_DRIVE_POWER = 0.5;
+    public static double MIN_TURN_POWER = 0.5;
+    public static double TARGET_X_MM = 1000;
+    public static double TARGET_Y_MM = 1000;
     boolean terminat = false;
     @Override
     public void init() {
@@ -94,7 +87,7 @@ public class goToPoint extends OpMode {
 
     @Override
     public void loop(){
-        goToPoint(TARGET_X_MM, TARGET_Y_MM);
+        if(!terminat) goToPoint(TARGET_X_MM, TARGET_Y_MM);
 
         if(terminat) {
             stopDrive();
@@ -123,17 +116,35 @@ public class goToPoint extends OpMode {
 
             }
 
-            // heading
-            double targetHeadingDeg = Math.toDegrees(Math.atan2(dy, dx));
-            double headingError = normalizeAngle(targetHeadingDeg - currentHeadingDeg);
+         // heading
+         double targetHeadingDeg = Math.toDegrees(Math.atan2(dy, dx));
+         double headingError = normalizeAngle(targetHeadingDeg - currentHeadingDeg);
 
-            double drivePower;
-            double turnPower;
+// Fold heading error into a headless line (-90..90) instead of a full vector (-180..180).
+// If the target is more "behind" than "ahead", it's cheaper/more accurate to drive
+// backward than to rotate 180 deg first - especially with a rear-biased COR, where
+// in-place rotation drags the tracked point around an arc instead of holding still.
+         double driveSign = 1.0;
+         if (headingError > 90.0) {
+             headingError -= 180.0;
+             driveSign = -1.0;
+         } else if (headingError < -90.0) {
+             headingError += 180.0;
+             driveSign = -1.0;
+         }
 
-            // mergem inainte si corectam usor directia
-           drivePower = KP_DRIVE * distanceToTarget;
-           turnPower  = KP_TURN * headingError * 0.5; // corectie mai blanda in miscare
+         double drivePower;
+         double turnPower;
 
+         if (Math.abs(headingError) > HEADING_LOCK_DEG) {
+             // still too far off-axis -> rotate in place, no translation
+             drivePower = 0.0;
+             turnPower = KP_TURN * headingError;
+         } else {
+             // aligned enough (forward OR backward) -> translate, correcting heading gently
+             drivePower = driveSign * KP_DRIVE * distanceToTarget;
+             turnPower  = KP_TURN * headingError * 0.5;
+         }
             drivePower = clamp(drivePower, -MAX_POWER, MAX_POWER);
             turnPower  = clamp(turnPower, -MAX_POWER, MAX_POWER);
 
