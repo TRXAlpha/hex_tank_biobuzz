@@ -130,15 +130,9 @@ public class goToPoint extends OpMode {
             double drivePower;
             double turnPower;
 
-            if (Math.abs(headingError) > HEADING_LOCK_DEG) {
-                // eroare mare de unghi -> ne rotim pe loc, fara sa mergem inainte
-                drivePower = 0.0;
-                turnPower = KP_TURN * headingError;
-            } else {
-                // mergem inainte si corectam usor directia
-                drivePower = KP_DRIVE * distanceToTarget;
-                turnPower  = KP_TURN * headingError * 0.5; // corectie mai blanda in miscare
-            }
+            // mergem inainte si corectam usor directia
+           drivePower = KP_DRIVE * distanceToTarget;
+           turnPower  = KP_TURN * headingError * 0.5; // corectie mai blanda in miscare
 
             drivePower = clamp(drivePower, -MAX_POWER, MAX_POWER);
             turnPower  = clamp(turnPower, -MAX_POWER, MAX_POWER);
