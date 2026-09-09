@@ -1,4 +1,4 @@
-package org.firstinspires.ftc.teamcode.tuning;
+package org.firstinspires.ftc.teamcode.tank;
 
 import com.acmerobotics.dashboard.config.Config;
 import com.qualcomm.hardware.gobilda.GoBildaPinpointDriver;
@@ -49,8 +49,8 @@ public class goToPoint extends OpMode {
     public static double KP_DRIVE = 0.0035;
     public static double KP_TURN = 0.02;
     public static double MAX_POWER = 0.75;
-    public static double MIN_DRIVE_POWER = 0.5;
-    public static double MIN_TURN_POWER = 0.5;
+    public static double MIN_DRIVE_POWER = 0.25;
+    public static double MIN_TURN_POWER = 0.25;
     public static double TARGET_X_MM = 1000;
     public static double TARGET_Y_MM = 1000;
     boolean terminat = false;
@@ -92,86 +92,85 @@ public class goToPoint extends OpMode {
         if(terminat) {
             stopDrive();
             telemetry.addData("terminat", terminat);
-            telemetry.update();
         }
+        telemetry.addData("X (mm)", "%.1f", pinpoint.getPosX(DistanceUnit.MM));
+        telemetry.addData("Y (mm)", "%.1f", pinpoint.getPosY(DistanceUnit.MM));
+        telemetry.addData("Heading (deg)", "%.1f", pinpoint.getHeading(AngleUnit.DEGREES));
 
+        telemetry.update();
     }
 
-     void goToPoint(double targetX, double targetY) {
+    void goToPoint(double targetX, double targetY) {
 
-            pinpoint.update();
-            Pose2D pose = pinpoint.getPosition();
-            // x,y,h
-            double currentX = pose.getX(DistanceUnit.MM);
-            double currentY = pose.getY(DistanceUnit.MM);
-            double currentHeadingDeg = pose.getHeading(AngleUnit.DEGREES);
-            // delte si dist
-            double dx = targetX - currentX;
-            double dy = targetY - currentY;
-            double distanceToTarget = Math.hypot(dx, dy);
+        pinpoint.update();
+        Pose2D pose = pinpoint.getPosition();
+        // x,y,h
+        double currentX = pose.getX(DistanceUnit.MM);
+        double currentY = pose.getY(DistanceUnit.MM);
+        double currentHeadingDeg = pose.getHeading(AngleUnit.DEGREES);
+        // delte si dist
+        double dx = targetX - currentX;
+        double dy = targetY - currentY;
+        double distanceToTarget = Math.hypot(dx, dy);
 
-            if (distanceToTarget <= DISTANCE_TOLERANCE_MM){
-                terminat = true;
-                return; // am ajuns
+        if (distanceToTarget <= DISTANCE_TOLERANCE_MM){
+            terminat = true;
+            stopDrive();
+            return; // am ajuns
 
-            }
+        }
 
-         // heading
-         double targetHeadingDeg = Math.toDegrees(Math.atan2(dy, dx));
-         double headingError = normalizeAngle(targetHeadingDeg - currentHeadingDeg);
+        // heading
+        double targetHeadingDeg = Math.toDegrees(Math.atan2(dy, dx));
+        double headingError = normalizeAngle(targetHeadingDeg - currentHeadingDeg);
 
 // Fold heading error into a headless line (-90..90) instead of a full vector (-180..180).
 // If the target is more "behind" than "ahead", it's cheaper/more accurate to drive
 // backward than to rotate 180 deg first - especially with a rear-biased COR, where
 // in-place rotation drags the tracked point around an arc instead of holding still.
-         double driveSign = 1.0;
-         if (headingError > 90.0) {
-             headingError -= 180.0;
-             driveSign = -1.0;
-         } else if (headingError < -90.0) {
-             headingError += 180.0;
-             driveSign = -1.0;
-         }
+        double driveSign = 1.0;
+        if (headingError > 90.0) {
+            headingError -= 180.0;
+            driveSign = -1.0;
+        } else if (headingError < -90.0) {
+            headingError += 180.0;
+            driveSign = -1.0;
+        }
 
-         double drivePower;
-         double turnPower;
+        double drivePower;
+        double turnPower;
 
-         if (Math.abs(headingError) > HEADING_LOCK_DEG) {
-             // still too far off-axis -> rotate in place, no translation
-             drivePower = 0.0;
-             turnPower = KP_TURN * headingError;
-         } else {
-             // aligned enough (forward OR backward) -> translate, correcting heading gently
-             drivePower = driveSign * KP_DRIVE * distanceToTarget;
-             turnPower  = KP_TURN * headingError * 0.5;
-         }
-            drivePower = clamp(drivePower, -MAX_POWER, MAX_POWER);
-            turnPower  = clamp(turnPower, -MAX_POWER, MAX_POWER);
+        if (Math.abs(headingError) > HEADING_LOCK_DEG) {
+            // still too far off-axis -> rotate in place, no translation
+            drivePower = 0.0;
+            turnPower = KP_TURN * headingError;
+        } else {
+            // aligned enough (forward OR backward) -> translate, correcting heading gently
+            drivePower = driveSign * KP_DRIVE * distanceToTarget;
+            turnPower  = KP_TURN * headingError * 0.5;
+        }
+        drivePower = clamp(drivePower, -MAX_POWER, MAX_POWER);
+        turnPower  = clamp(turnPower, -MAX_POWER, MAX_POWER);
 
-            // ks
-            if (drivePower != 0 && Math.abs(drivePower) < MIN_DRIVE_POWER) {
-                drivePower = Math.copySign(MIN_DRIVE_POWER, drivePower);
-            }
-            if (turnPower != 0 && Math.abs(turnPower) < MIN_TURN_POWER) {
-                turnPower = Math.copySign(MIN_TURN_POWER, turnPower);
-            }
+        // ks
+        if (drivePower != 0 && Math.abs(drivePower) < MIN_DRIVE_POWER) {
+            drivePower = Math.copySign(MIN_DRIVE_POWER, drivePower);
+        }
+        if (turnPower != 0 && Math.abs(turnPower) < MIN_TURN_POWER) {
+            turnPower = Math.copySign(MIN_TURN_POWER, turnPower);
+        }
 
-            double leftPower  = drivePower - turnPower;
-            double rightPower = drivePower + turnPower;
+        double leftPower  = drivePower - turnPower;
+        double rightPower = drivePower + turnPower;
 
-            double maxMag = Math.max(1.0, Math.max(Math.abs(leftPower), Math.abs(rightPower)));
-            leftPower  /= maxMag;
-            rightPower /= maxMag;
+        double maxMag = Math.max(1.0, Math.max(Math.abs(leftPower), Math.abs(rightPower)));
+        leftPower  /= maxMag;
+        rightPower /= maxMag;
 
-            leftDrive.setPower(leftPower);
-            rightDrive.setPower(rightPower);
+        leftDrive.setPower(leftPower);
+        rightDrive.setPower(rightPower);
 
-            telemetry.addData("X (mm)", "%.1f", currentX);
-            telemetry.addData("Y (mm)", "%.1f", currentY);
-            telemetry.addData("Heading (deg)", "%.1f", currentHeadingDeg);
-            telemetry.addData("Distanta ramasa (mm)", "%.1f", distanceToTarget);
-            telemetry.addData("Eroare unghi (deg)", "%.1f", headingError);
-            telemetry.update();
+
 
     }
 
