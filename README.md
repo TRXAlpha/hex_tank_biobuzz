@@ -21,3 +21,8 @@ factor de corectie putere: +0.017 pt motor dreapta, motor stanga este reversed
 
 ### fun facts 💡💭
 * controller bang-bang e fr; feedback controller that switches abruptly between two states
+
+
+
+## chestii de cautat/tinut minte pt viitor
+* bang bang controller pt flywheel cica e mai bun decat pid
