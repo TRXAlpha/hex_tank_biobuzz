@@ -1,4 +1,4 @@
-package org.firstinspires.ftc.teamcode.tank;
+package org.firstinspires.ftc.teamcode.tuning;
 
 import com.acmerobotics.dashboard.config.Config;
 import com.qualcomm.hardware.gobilda.GoBildaPinpointDriver;
