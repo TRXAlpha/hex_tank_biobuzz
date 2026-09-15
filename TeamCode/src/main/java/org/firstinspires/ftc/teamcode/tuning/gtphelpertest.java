@@ -1,43 +1,227 @@
 package org.firstinspires.ftc.teamcode.tuning;
 
-import com.acmerobotics.dashboard.FtcDashboard;
 import com.acmerobotics.dashboard.config.Config;
-import com.acmerobotics.dashboard.telemetry.MultipleTelemetry;
-import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
-import com.qualcomm.robotcore.eventloop.opmode.OpMode;
+import com.qualcomm.hardware.gobilda.GoBildaPinpointDriver;
+import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
+import com.qualcomm.robotcore.hardware.DcMotor;
+import com.qualcomm.robotcore.hardware.DcMotorSimple;
+import com.qualcomm.robotcore.hardware.HardwareMap;
+import com.qualcomm.robotcore.util.Range;
 
-import org.firstinspires.ftc.teamcode.gtp_helper;
+import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
+import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
+import org.firstinspires.ftc.robotcore.external.navigation.Pose2D;
 
 @Config
-@Autonomous(name = "test helper gtp")
-public class gtphelpertest extends OpMode {
+public class gtphelpertest {
 
-    public static double TARGET_X = 600;
-    public static double TARGET_Y = 600;
+    // ===================== GO-TO-POINT =====================
+    public static double DISTANCE_TOLERANCE_MM = 10;
+    public static double HEADING_LOCK_DEG = 10;
+    public static double HEADING_DEADBAND_DEG = 1.5;
+    public static double KP_DRIVE = 0.0035;
+    public static double KP_TURN = 0.02;
+    public static double MAX_POWER = 0.75;
+    public static double MIN_DRIVE_POWER = 0.25;
+    public static double MIN_TURN_POWER = 0.25;
+    public static double TRANSLATE_TURN_SCALE = 0.5;
 
-    private gtp_helper drive;
+    // ===================== HEADING PE LOC (tanh + kS) =====================
+    public static double HEADING_KP = 0.55;
+    public static double HEADING_TANH_SCALE = 2.0;
+    public static double HEADING_KS = 0.18;
+    public static double HEADING_DEADBAND = 0.6;
+    public static double HEADING_MAX_POWER = 0.7;
+    public static double NOMINAL_VOLTAGE = 12.5;
 
-    @Override
-    public void init() {
-        telemetry = new MultipleTelemetry(telemetry, FtcDashboard.getInstance().getTelemetry());
-        drive = gtp_helper.fromHardwareMap(hardwareMap, "stanga", "dreapta", "pinpoint", 50, 0);
+    // =======================================================
+
+    private final DcMotor stanga;
+    private final DcMotor dreapta;
+    private final GoBildaPinpointDriver pinpoint;
+    private final HardwareMap hardwareMap;
+
+    private Pose2D pose;
+
+    public gtphelpertest(DcMotor stanga, DcMotor dreapta, GoBildaPinpointDriver pinpoint, HardwareMap hardwareMap) {
+        this.stanga = stanga;
+        this.dreapta = dreapta;
+        this.pinpoint = pinpoint;
+        this.hardwareMap = hardwareMap;
     }
 
-    @Override
-    public void loop() {
-        boolean done = drive.update(TARGET_X, TARGET_Y);
+    public static gtphelpertest fromHardwareMap(HardwareMap hardwareMap,
+                                             String leftName,
+                                             String rightName,
+                                             String pinpointName,
+                                             double podOffsetX_mm,
+                                             double podOffsetY_mm) {
+        DcMotor stanga = hardwareMap.get(DcMotor.class, leftName);
+        DcMotor dreapta = hardwareMap.get(DcMotor.class, rightName);
 
-        telemetry.addData("done", done);
-        telemetry.addData("targetX", TARGET_X);
-        telemetry.addData("targetY", TARGET_Y);
-        telemetry.addData("x", drive.getX());
-        telemetry.addData("y", drive.getY());
-        telemetry.addData("heading", drive.getHeading());
-        telemetry.update();
+        stanga.setDirection(DcMotorSimple.Direction.REVERSE);
+        dreapta.setDirection(DcMotorSimple.Direction.FORWARD);
+        stanga.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        dreapta.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+
+        GoBildaPinpointDriver pinpoint = hardwareMap.get(GoBildaPinpointDriver.class, pinpointName);
+        pinpoint.setOffsets(podOffsetX_mm, podOffsetY_mm, DistanceUnit.MM);
+        pinpoint.setEncoderResolution(GoBildaPinpointDriver.GoBildaOdometryPods.goBILDA_4_BAR_POD);
+        pinpoint.setEncoderDirections(
+                GoBildaPinpointDriver.EncoderDirection.FORWARD,
+                GoBildaPinpointDriver.EncoderDirection.FORWARD);
+        pinpoint.resetPosAndIMU();
+
+        return new gtphelpertest(stanga, dreapta, pinpoint, hardwareMap);
     }
 
-    @Override
+    // =========================================================
+    //                    GO-TO-POINT
+    // =========================================================
+
+    public boolean update(double targetX_mm, double targetY_mm) {
+        pinpoint.update();
+        pose = pinpoint.getPosition();
+
+        double dx = targetX_mm - pose.getX(DistanceUnit.MM);
+        double dy = targetY_mm - pose.getY(DistanceUnit.MM);
+        double distance = Math.hypot(dx, dy);
+
+        if (distance <= DISTANCE_TOLERANCE_MM) {
+            stop();
+            return true;
+        }
+
+        double headingError = normalizeAngle(
+                Math.toDegrees(Math.atan2(dy, dx)) - pose.getHeading(AngleUnit.DEGREES));
+
+        double driveSign = 1.0;
+        if (headingError > 90.0) {
+            headingError -= 180.0;
+            driveSign = -1.0;
+        } else if (headingError < -90.0) {
+            headingError += 180.0;
+            driveSign = -1.0;
+        }
+
+        double drivePower;
+        double turnPower;
+
+        if (Math.abs(headingError) > HEADING_LOCK_DEG) {
+            drivePower = 0.0;
+            turnPower = applyMinPower(KP_TURN * headingError, MIN_TURN_POWER);
+        } else {
+            drivePower = applyMinPower(driveSign * KP_DRIVE * distance, MIN_DRIVE_POWER);
+            turnPower = Math.abs(headingError) < HEADING_DEADBAND_DEG
+                    ? 0.0
+                    : KP_TURN * headingError * TRANSLATE_TURN_SCALE;
+        }
+
+        setDriveTurn(drivePower, turnPower);
+        return false;
+    }
+
+    public void runToPoint(LinearOpMode opMode, double targetX_mm, double targetY_mm) {
+        while (opMode.opModeIsActive() && !update(targetX_mm, targetY_mm)) {
+            opMode.idle();
+        }
+        stop();
+    }
+
+    // =========================================================
+    //               HEADING DOAR PE LOC
+    // =========================================================
+
+    public boolean turnTo(double targetHeadingDeg) {
+        pinpoint.update();
+        pose = pinpoint.getPosition();
+
+        double current = pose.getHeading(AngleUnit.DEGREES);
+        double error = normalizeAngle(targetHeadingDeg - current);
+
+        if (Math.abs(error) < HEADING_DEADBAND) {
+            stop();
+            return true;
+        }
+
+        // Controller tanh + kS
+        double raw = Math.tanh(Math.toRadians(error) * HEADING_TANH_SCALE) * HEADING_KP;
+        double power = raw + Math.copySign(HEADING_KS, raw);
+
+        // Compensare tensiune
+        double battery = hardwareMap.voltageSensor.iterator().next().getVoltage();
+        double scale = NOMINAL_VOLTAGE / battery;
+        power *= scale;
+
+        power = Range.clip(power, -HEADING_MAX_POWER, HEADING_MAX_POWER);
+
+        // Puteri opuse = rotație pe loc
+        stanga.setPower(power);
+        dreapta.setPower(-power);
+
+        return false;
+    }
+
+    public void turnToBlocking(LinearOpMode opMode, double targetHeadingDeg) {
+        while (opMode.opModeIsActive() && !turnTo(targetHeadingDeg)) {
+            opMode.idle();
+        }
+        stop();
+    }
+
+    // =========================================================
+    //                    UTILITARE
+    // =========================================================
+
     public void stop() {
-        drive.stop();
+        stanga.setPower(0);
+        dreapta.setPower(0);
+    }
+
+    public void resetPose() {
+        pinpoint.resetPosAndIMU();
+    }
+
+    public Pose2D getPose() {
+        return pose;
+    }
+
+    public double getX() {
+        return pose == null ? 0 : pose.getX(DistanceUnit.MM);
+    }
+
+    public double getY() {
+        return pose == null ? 0 : pose.getY(DistanceUnit.MM);
+    }
+
+    public double getHeading() {
+        return pose == null ? 0 : pose.getHeading(AngleUnit.DEGREES);
+    }
+
+    private void setDriveTurn(double drive, double turn) {
+        drive = clamp(drive, -MAX_POWER, MAX_POWER);
+        turn = clamp(turn, -MAX_POWER, MAX_POWER);
+
+        double left = drive - turn;
+        double right = drive + turn;
+
+        double maxMag = Math.max(1.0, Math.max(Math.abs(left), Math.abs(right)));
+        stanga.setPower(left / maxMag);
+        dreapta.setPower(right / maxMag);
+    }
+
+    private static double applyMinPower(double power, double minPower) {
+        if (power == 0) return 0;
+        return Math.abs(power) < minPower ? Math.copySign(minPower, power) : power;
+    }
+
+    private static double normalizeAngle(double angleDeg) {
+        while (angleDeg > 180) angleDeg -= 360;
+        while (angleDeg < -180) angleDeg += 360;
+        return angleDeg;
+    }
+
+    private static double clamp(double val, double min, double max) {
+        return Math.max(min, Math.min(max, val));
     }
 }
