@@ -17,8 +17,8 @@ public class teleopDriving extends OpMode {
     @Override
     public void loop() {
         //bleh
-        double forward = -gamepad1.right_stick_x;
-        double turn = gamepad1.left_stick_y;
+        double forward = gamepad1.right_stick_x;
+        double turn = -gamepad1.left_stick_y;
 
         double putereStanga = forward+turn;
         double putereDreapta = forward-turn;

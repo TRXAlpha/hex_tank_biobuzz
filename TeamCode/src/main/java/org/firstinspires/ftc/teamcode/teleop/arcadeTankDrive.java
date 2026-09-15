@@ -9,7 +9,7 @@ import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 
 @TeleOp(name="teleop debug", group="debugging")
-public class arcadeTankDrive extends OpMode {
+public class  arcadeTankDrive extends OpMode {
     private DcMotor stanga, dreapta;
     GoBildaPinpointDriver pinpoint;
     @Override

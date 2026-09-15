@@ -34,8 +34,8 @@ public class gtptestguzu extends LinearOpMode {
     static final double COUNTS_PER_INCH =
             (COUNTS_PER_MOTOR_REV * DRIVE_GEAR_REDUCTION) / (WHEEL_DIAMETER_INCHES * Math.PI);
 
-    static final double DRIVE_SPEED = 0.85;
-    static final double TURN_SPEED  = 0.70;
+    static final double DRIVE_SPEED = 0.35;
+    static final double TURN_SPEED  = 0.15;
 
     static final double HEADING_THRESHOLD = 1.5;
     static final double P_TURN_GAIN  = 0.03;

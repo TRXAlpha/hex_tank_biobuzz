@@ -54,7 +54,7 @@ public class goToPointExperimental extends OpMode {
     public static double FINAL_MIN_TURN_POWER = 0.08;
     public static double TARGET_X_MM = 1000;
     public static double TARGET_Y_MM = 1000;
-    public static double HEADING_TOLERANCE_DEG = 5;
+    public static double HEADING_TOLERANCE_DEG =    5;
     public static double TARGET_HEADING_DEG = 0;
     // Vector from the Pinpoint-tracked point to the real center of rotation,
     // expressed in robot coordinates: +forward and +left. Initial estimates
