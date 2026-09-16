@@ -12,31 +12,7 @@ import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.Pose2D;
 
-// Driverul oficial goBILDA pentru Pinpoint. Trebuie adaugat separat in proiect:
-// https://github.com/goBILDA-Official/FtcRobotController-Pinpoint
-// (fisierul GoBildaPinpointDriver.java se pune in acelasi pachet teamcode / drivers)
 
-/**
- * Deplaseaza robotul (tank drive, 2 motoare: stanga/dreapta) din (0,0) in (600,600) mm,
- * folosind pozitia raportata de Pinpoint Odometry Computer.
- *
- * IMPORTANT - lucruri pe care TREBUIE sa le verifici/ajustezi pe robotul tau real:
- *  1. Numele din hardwareMap ("motor1", "motor2", "pinpoint") trebuie sa corespunda
- *     exact cu numele configurate in Driver Station (Configure Robot).
- *  2. Sensul motoarelor (FORWARD/REVERSE) - daca robotul se roteste invers decat ar trebui,
- *     inverseaza directia unuia dintre motoare.
- *  3. Offset-urile pod-urilor de odometrie (podOffsetX_mm, podOffsetY_mm) - acestea NU sunt
- *     pozitia fizica a placutei Pinpoint, ci distanta de la centrul de rotatie al robotului
- *     pana la fiecare pod (X = pod-ul care masoara inainte/inapoi, Y = pod-ul care masoara
- *     stanga/dreapta). Valorile de mai jos sunt DOAR exemplu - masoara-le pe robotul tau.
- *  4. Sensul encoderelor de pe pod-uri (EncoderDirection) - daca X sau Y creste in sens
- *     opus fata de ce ar trebui, inverseaza.
- *  5. Coeficientii KP_TURN / KP_DRIVE si limitele de putere - se regleaza empiric.
- *
- * Conventie de coordonate/unghi folosita (conventia standard Pinpoint):
- *   - X pozitiv = inainte, Y pozitiv = stanga robotului, la pozitia de start.
- *   - Heading 0 = robotul e orientat pe directia +X initiala, unghi pozitiv = sens trigonometric (CCW).
- */
 @Config
 @Autonomous(name = "GoToPoint cu target heading", group = "Auto")
 public class goToPointExperimental extends OpMode {
@@ -56,9 +32,6 @@ public class goToPointExperimental extends OpMode {
     public static double TARGET_Y_MM = 1000;
     public static double HEADING_TOLERANCE_DEG =    5;
     public static double TARGET_HEADING_DEG = 0;
-    // Vector from the Pinpoint-tracked point to the real center of rotation,
-    // expressed in robot coordinates: +forward and +left. Initial estimates
-    // below are derived from the latest simulated final-turn arc.
     public static double COR_FORWARD_MM = -100;
     public static double COR_LEFT_MM = 5;
     public static boolean terminat = false;

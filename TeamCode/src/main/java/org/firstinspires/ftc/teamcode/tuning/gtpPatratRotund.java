@@ -62,6 +62,11 @@ public class gtpPatratRotund extends LinearOpMode {
     static final double MIN_TURN_POWER  = 0.15;   // putere minima ca sa invinga frecarea la rotire
     static final double MIN_DRIVE_POWER = 0.4;   // putere minima ca sa invinga frecarea la deplasare
 
+
+    static final double HEADING_LOCK_DEG = 10.0;        // gate: rotate-only vs drive+correct
+    static final double HEADING_FREEZE_RADIUS_MM = 60.0; // stop re-deriving heading from atan2 once this close
+
+
     // Raza (mm) la care controller-ul considera un colt intermediar "atins" si trece
     // la urmatorul punct FARA sa opreasca robotul -> asta produce curba lina in colt,
     // in loc de oprire + rotire pe loc. Cu cat e mai mare, cu atat colturile sunt mai
@@ -122,7 +127,7 @@ public class gtpPatratRotund extends LinearOpMode {
             telemetry.addData("Tinta (mm)", "%.0f, %.0f", wx, wy);
             telemetry.update();
 
-            goToPoint(wx, wy, toleranceMm, isLastPoint);
+            goToPoint(wx, wy,0, toleranceMm, isLastPoint);
         }
 
         telemetry.addLine("Traseu patrat finalizat - robotul a revenit la (0,0)");
@@ -145,8 +150,13 @@ public class gtpPatratRotund extends LinearOpMode {
      *                            metoda doar returneaza control, fara sa franeze,
      *                            astfel incat urmatorul segment continua lin.
      */
-    private void goToPoint(double targetX, double targetY, double toleranceMm, boolean fullStopWhenReached) {
 
+    private void goToPoint(double targetX, double targetY, double finalHeadingDeg, double toleranceMm, boolean fullStopWhenReached) {
+
+        boolean haveHeading = false;
+        double lockedHeadingDeg = 0.0;
+
+        // --- Faza 1: Deplasarea catre coordonatele (X, Y) ---
         while (opModeIsActive()) {
 
             pinpoint.update();
@@ -164,26 +174,44 @@ public class gtpPatratRotund extends LinearOpMode {
                 break; // punct atins
             }
 
-            double targetHeadingDeg = Math.toDegrees(Math.atan2(dy, dx));
+            double targetHeadingDeg;
+            if (distanceToTarget > HEADING_FREEZE_RADIUS_MM || !haveHeading) {
+                targetHeadingDeg = Math.toDegrees(Math.atan2(dy, dx));
+                lockedHeadingDeg = targetHeadingDeg;
+                haveHeading = true;
+            } else {
+                targetHeadingDeg = lockedHeadingDeg;
+            }
+
             double headingError = normalizeAngle(targetHeadingDeg - currentHeadingDeg);
 
-            // headingScale = 1 cand robotul e aliniat perfect cu directia tintei,
-            // scade lin spre 0 pe masura ce eroarea de unghi creste spre 90 grade,
-            // si devine 0 (nu mai merge inainte deloc) peste 90 grade eroare.
-            double headingErrorRad = Math.toRadians(headingError);
-            double headingScale = Math.max(0.0, Math.cos(headingErrorRad));
+            double driveSign = 1.0;
+            if (headingError > 90.0) {
+                headingError -= 180.0;
+                driveSign = -1.0;
+            } else if (headingError < -90.0) {
+                headingError += 180.0;
+                driveSign = -1.0;
+            }
 
-            double turnPower  = KP_TURN * headingError;
-            double drivePower = KP_DRIVE * distanceToTarget * headingScale;
+            double drivePower;
+            double turnPower;
+
+            if (Math.abs(headingError) > HEADING_LOCK_DEG) {
+                drivePower = 0.0;
+                turnPower  = KP_TURN * headingError;
+            } else {
+                drivePower = driveSign * KP_DRIVE * distanceToTarget;
+                turnPower  = KP_TURN * headingError * 0.5;
+            }
 
             drivePower = clamp(drivePower, -MAX_POWER, MAX_POWER);
             turnPower  = clamp(turnPower,  -MAX_POWER, MAX_POWER);
 
-            if (drivePower != 0 && Math.abs(drivePower) < MIN_DRIVE_POWER && headingScale > 0.05) {
+            if (drivePower != 0 && Math.abs(drivePower) < MIN_DRIVE_POWER) {
                 drivePower = Math.copySign(MIN_DRIVE_POWER, drivePower);
             }
-            if (Math.abs(headingError) > HEADING_TOLERANCE_DEG
-                    && turnPower != 0 && Math.abs(turnPower) < MIN_TURN_POWER) {
+            if (turnPower != 0 && Math.abs(turnPower) < MIN_TURN_POWER) {
                 turnPower = Math.copySign(MIN_TURN_POWER, turnPower);
             }
 
@@ -201,15 +229,45 @@ public class gtpPatratRotund extends LinearOpMode {
             telemetry.addData("Y (mm)", "%.1f", currentY);
             telemetry.addData("Heading (deg)", "%.1f", currentHeadingDeg);
             telemetry.addData("Distanta ramasa (mm)", "%.1f", distanceToTarget);
-            telemetry.addData("Eroare unghi (deg)", "%.1f", headingError);
             telemetry.update();
         }
 
-        if (fullStopWhenReached) {
+        // --- Faza 2: Aliniere finala (ROTIRI PURE - FARA NICI O VERIFICARE DE X/Y) ---
+        if (fullStopWhenReached && opModeIsActive()) {
             stopDrive();
-        }
-    }
+            sleep(150); // Pauza scurta sa lase robotul sa se aseze
 
+            while (opModeIsActive()) {
+                pinpoint.update();
+                Pose2D pose = pinpoint.getPosition();
+
+                // Luam DOAR unghiul. Ignoram complet X si Y, deci offset-ul nu va cauza nicio lupta.
+                double currentHeadingDeg = pose.getHeading(AngleUnit.DEGREES);
+                double headingError = normalizeAngle(finalHeadingDeg - currentHeadingDeg);
+
+                if (Math.abs(headingError) <= HEADING_TOLERANCE_DEG) {
+                    break; // Am ajuns la unghiul tinta, oprim definitiv
+                }
+
+                double turnPower = KP_TURN * headingError;
+                turnPower = clamp(turnPower, -MAX_POWER, MAX_POWER);
+
+                if (Math.abs(turnPower) < MIN_TURN_POWER) {
+                    turnPower = Math.copySign(MIN_TURN_POWER, turnPower);
+                }
+
+                // Tank drive in oglinda: rotire curata pe loc
+                leftDrive.setPower(-turnPower);
+                rightDrive.setPower(turnPower);
+
+                telemetry.addData("Faza 2 - Heading curent", "%.1f", currentHeadingDeg);
+                telemetry.addData("Faza 2 - Eroare unghi", "%.1f", headingError);
+                telemetry.update();
+            }
+        }
+
+        stopDrive();
+    }
     private void stopDrive() {
         leftDrive.setPower(0);
         rightDrive.setPower(0);

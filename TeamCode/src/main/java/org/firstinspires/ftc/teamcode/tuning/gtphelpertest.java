@@ -8,6 +8,7 @@ import com.qualcomm.robotcore.hardware.DcMotorSimple;
 import com.qualcomm.robotcore.hardware.HardwareMap;
 import com.qualcomm.robotcore.util.Range;
 
+import org.firstinspires.ftc.robotcore.external.Telemetry;
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.Pose2D;
@@ -42,6 +43,9 @@ public class gtphelpertest {
     private final HardwareMap hardwareMap;
 
     private Pose2D pose;
+
+    private boolean doneXY = false;
+    private boolean doneHeading = false;
 
     public gtphelpertest(DcMotor stanga, DcMotor dreapta, GoBildaPinpointDriver pinpoint, HardwareMap hardwareMap) {
         this.stanga = stanga;
@@ -79,7 +83,7 @@ public class gtphelpertest {
     //                    GO-TO-POINT
     // =========================================================
 
-    public boolean update(double targetX_mm, double targetY_mm) {
+    public void updateXY(double targetX_mm, double targetY_mm, Telemetry t) {
         pinpoint.update();
         pose = pinpoint.getPosition();
 
@@ -89,11 +93,16 @@ public class gtphelpertest {
 
         if (distance <= DISTANCE_TOLERANCE_MM) {
             stop();
-            return true;
+            doneXY = true;
+            return;
         }
 
         double headingError = normalizeAngle(
                 Math.toDegrees(Math.atan2(dy, dx)) - pose.getHeading(AngleUnit.DEGREES));
+
+        t.addData("x error",dx);
+        t.addData("y error",dy);
+        t.addData("heading error",headingError);
 
         double driveSign = 1.0;
         if (headingError > 90.0) {
@@ -118,21 +127,15 @@ public class gtphelpertest {
         }
 
         setDriveTurn(drivePower, turnPower);
-        return false;
-    }
-
-    public void runToPoint(LinearOpMode opMode, double targetX_mm, double targetY_mm) {
-        while (opMode.opModeIsActive() && !update(targetX_mm, targetY_mm)) {
-            opMode.idle();
-        }
-        stop();
+        doneXY = false;
+        return;
     }
 
     // =========================================================
     //               HEADING DOAR PE LOC
     // =========================================================
 
-    public boolean turnTo(double targetHeadingDeg) {
+    public void updateHeading(double targetHeadingDeg,Telemetry t) {
         pinpoint.update();
         pose = pinpoint.getPosition();
 
@@ -141,8 +144,11 @@ public class gtphelpertest {
 
         if (Math.abs(error) < HEADING_DEADBAND) {
             stop();
-            return true;
+            doneHeading = true;
+            return;
         }
+
+        t.addData("heading error",error);
 
         // Controller tanh + kS
         double raw = Math.tanh(Math.toRadians(error) * HEADING_TANH_SCALE) * HEADING_KP;
@@ -159,14 +165,8 @@ public class gtphelpertest {
         stanga.setPower(power);
         dreapta.setPower(-power);
 
-        return false;
-    }
-
-    public void turnToBlocking(LinearOpMode opMode, double targetHeadingDeg) {
-        while (opMode.opModeIsActive() && !turnTo(targetHeadingDeg)) {
-            opMode.idle();
-        }
-        stop();
+        doneHeading=false;
+        return;
     }
 
     // =========================================================
@@ -209,6 +209,13 @@ public class gtphelpertest {
         stanga.setPower(left / maxMag);
         dreapta.setPower(right / maxMag);
     }
+
+    public boolean getStatusXY(){
+        return doneXY;
+    }
+    public boolean getStatusHeading(){
+        return doneHeading;
+  }
 
     private static double applyMinPower(double power, double minPower) {
         if (power == 0) return 0;

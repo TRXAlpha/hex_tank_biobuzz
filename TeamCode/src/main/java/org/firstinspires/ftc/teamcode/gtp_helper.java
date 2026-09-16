@@ -7,6 +7,7 @@ import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DcMotorSimple;
 import com.qualcomm.robotcore.hardware.HardwareMap;
 
+import org.firstinspires.ftc.robotcore.external.Telemetry;
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.Pose2D;
@@ -61,7 +62,7 @@ public class gtp_helper {
         return new gtp_helper(left, right, pinpoint);
     }
 
-    public boolean update(double targetX_mm, double targetY_mm) {
+    public boolean update(double targetX_mm, double targetY_mm, Telemetry t) {
         pinpoint.update();
         pose = pinpoint.getPosition();
 
@@ -86,6 +87,10 @@ public class gtp_helper {
             driveSign = -1.0;
         }
 
+        t.addData("x error",dx);
+        t.addData("y error",dy);
+        t.addData("heading error",headingError);
+
         double drivePower;
         double turnPower;
 
@@ -101,13 +106,6 @@ public class gtp_helper {
 
         setDriveTurn(drivePower, turnPower);
         return false;
-    }
-
-    public void runToPoint(LinearOpMode opMode, double targetX_mm, double targetY_mm) {
-        while (opMode.opModeIsActive() && !update(targetX_mm, targetY_mm)) {
-            opMode.idle();
-        }
-        stop();
     }
 
     public void stop() {
