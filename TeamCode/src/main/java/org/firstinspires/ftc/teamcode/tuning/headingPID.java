@@ -38,7 +38,7 @@ public class headingPID extends OpMode {
         dreapta.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
 
         pinpoint = hardwareMap.get(GoBildaPinpointDriver.class, "pinpoint");
-        pinpoint.setOffsets(0, 55, DistanceUnit.MM); // change these to your real offsets
+        pinpoint.setOffsets(55, 0, DistanceUnit.MM); // change these to your real offsets
         pinpoint.setEncoderResolution(GoBildaPinpointDriver.GoBildaOdometryPods.goBILDA_4_BAR_POD);
         pinpoint.resetPosAndIMU();
     }
