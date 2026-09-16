@@ -7,31 +7,30 @@ import com.acmerobotics.dashboard.telemetry.MultipleTelemetry;
 import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 
-import org.firstinspires.ftc.teamcode.gtp_helper_heading;
-import org.firstinspires.ftc.teamcode.kebab_fix_heading;
+import org.firstinspires.ftc.teamcode.AutoHelper;
 
 @Config
 @Autonomous(name = "kebab test heading fix")
-public class gtphelperTestingHeadingkebab extends OpMode {
+public class AutoParcare extends OpMode {
 
-    public static double TARGET_X = 600;
-    public static double TARGET_Y = 600;
+    public static double TARGET_X = 2370;
+    public static double TARGET_Y = 0;
 
     public static double TARGET_HEADING = 0;
 
-    private kebab_fix_heading drive;
+    private AutoHelper drive;
 
     @Override
     public void init() {
         telemetry = new MultipleTelemetry(telemetry, FtcDashboard.getInstance().getTelemetry());
-        drive = kebab_fix_heading.fromHardwareMap(hardwareMap, "stanga", "dreapta", "pinpoint", 50, 0);
+        drive = AutoHelper.fromHardwareMap(hardwareMap, "stanga", "dreapta", "pinpoint", 50, 0);
+        drive.resetPose();
     }
 
     @Override
     public void loop() {
         telemetry.addData("targetX", TARGET_X);
         telemetry.addData("targetY", TARGET_Y);
-
         boolean doneXY = drive.getStatusXY();
         boolean doneHeading = drive.getStatusHeading();
         if(!doneXY) {

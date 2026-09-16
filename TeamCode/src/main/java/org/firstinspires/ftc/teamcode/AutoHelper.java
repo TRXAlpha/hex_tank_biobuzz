@@ -14,7 +14,7 @@ import org.firstinspires.ftc.robotcore.external.navigation.Pose2D;
 import org.firstinspires.ftc.robotcore.external.Telemetry;
 
 @Config
-public class kebab_fix_heading {
+public class AutoHelper {
 
     // ===================== GO-TO-POINT =====================
 
@@ -24,8 +24,8 @@ public class kebab_fix_heading {
     public static double KP_DRIVE = 0.0035;
     public static double KP_TURN = 0.02;
     public static double MAX_POWER = 0.75;
-    public static double MIN_DRIVE_POWER = 0.25;
-    public static double MIN_TURN_POWER = 0.25;
+    public static double MIN_DRIVE_POWER = 0.4;
+    public static double MIN_TURN_POWER = 0.4;
     public static double TRANSLATE_TURN_SCALE = 0.5;
 
     // ===================== HEADING PE LOC =====================
@@ -52,7 +52,7 @@ public class kebab_fix_heading {
     private boolean doneXY = false;
     private boolean doneHeading = false;
 
-    public kebab_fix_heading(
+    public AutoHelper(
             DcMotor stanga,
             DcMotor dreapta,
             GoBildaPinpointDriver pinpoint,
@@ -64,7 +64,7 @@ public class kebab_fix_heading {
         this.hardwareMap = hardwareMap;
     }
 
-    public static kebab_fix_heading fromHardwareMap(
+    public static AutoHelper fromHardwareMap(
             HardwareMap hardwareMap,
             String leftName,
             String rightName,
@@ -103,7 +103,7 @@ public class kebab_fix_heading {
 
         pinpoint.resetPosAndIMU();
 
-        return new kebab_fix_heading(
+        return new AutoHelper(
                 stanga,
                 dreapta,
                 pinpoint,
@@ -254,10 +254,28 @@ public class kebab_fix_heading {
                 HEADING_MAX_POWER);
 
         // Puteri opuse = rotatie pe loc
-        stanga.setPower(power);
-        dreapta.setPower(-power);
+        stanga.setPower(-power);
+        dreapta.setPower(power);
 
         doneHeading = false;
+    }
+
+    public boolean lap(double targetHeadingDeg,
+                    double targetX_mm,
+                    double targetY_mm,
+                    Telemetry t
+    ){
+        boolean doneXY = this.getStatusXY();
+        boolean doneHeading = this.getStatusHeading();
+        boolean done=doneXY&&doneHeading;
+        if(!doneXY) {
+            this.updateXY(targetX_mm, targetY_mm,t);
+        }
+        if(!doneHeading && doneXY){
+            this.updateHeading(targetHeadingDeg,t);
+        }
+        if(done){return true;}
+        return false;
     }
 
     // =========================================================
