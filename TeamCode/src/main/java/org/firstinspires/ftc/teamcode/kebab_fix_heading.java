@@ -64,7 +64,7 @@ public class kebab_fix_heading {
         this.hardwareMap = hardwareMap;
     }
 
-    public static gtp_helper_heading fromHardwareMap(
+    public static kebab_fix_heading fromHardwareMap(
             HardwareMap hardwareMap,
             String leftName,
             String rightName,
@@ -103,7 +103,7 @@ public class kebab_fix_heading {
 
         pinpoint.resetPosAndIMU();
 
-        return new gtp_helper_heading(
+        return new kebab_fix_heading(
                 stanga,
                 dreapta,
                 pinpoint,
@@ -208,7 +208,7 @@ public class kebab_fix_heading {
         t.addData("heading error", error);
 
         // Deadband
-        if (Math.abs(error) <= HEADING_DEADBAND) {
+        if (Math.abs(targetHeadingDeg-current   ) <= HEADING_DEADBAND) {
 
             stop();
             doneHeading = true;
