@@ -135,29 +135,29 @@ public class gtp_helper_heading {
     //               HEADING DOAR PE LOC
     // =========================================================
 
-    aw = Math.tanh(Math.toRadians(error) * HEADING_TANH_SCALE) * HEADING_KP;
+    public void updateHeading(double targetHeadingDeg,Telemetry t) {
+        pinpoint.update();
+        pose = pinpoint.getPosition();
+
+        double current = pose.getHeading(AngleUnit.DEGREES);
+        double error = normalizeAngle(targetHeadingDeg - current);
+
+        if (Math.abs(error) < HEADING_DEADBAND) {
+            stop();
+            doneHeading = true;
+            return;
+        }
+
+        t.addData("heading error",error);
+
+        // Controller tanh + kS
+        double raw = Math.tanh(Math.toRadians(error) * HEADING_TANH_SCALE) * HEADING_KP;
         double power = raw + Math.copySign(HEADING_KS, raw);
 
         // Compensare tensiune
         double battery = hardwareMap.voltageSensor.iterator().next().getVoltage();
         double scale = NOMINAL_VOLTAGE / battery;
-        power *= scalpublic public void updateHeading(double targetHeadingDeg, Telemetry t) {
-            pinpoint.update();
-            pose = pinpoint.getPosition();
-
-            double current = pose.getHeading(AngleUnit.DEGREES);
-            double error = normalizeAngle(targetHeadingDeg - current);
-
-            if (Math.abs(error) < HEADING_DEADBAND) {
-                stop();
-                doneHeading = true;
-                return;
-            }
-
-            t.addData("heading error",error);
-
-            // Controller tanh + kS
-            double re;
+        power *= scale;
 
         power = Range.clip(power, -HEADING_MAX_POWER, HEADING_MAX_POWER);
 
