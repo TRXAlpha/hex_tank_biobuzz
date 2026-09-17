@@ -32,7 +32,7 @@ public class kebabAutoHelper {
     public static double HEADING_KP = 0.38;
     public static double HEADING_TANH_SCALE = 1.8;
     public static double HEADING_KS = 0.12;
-    public static double HEADING_DEADBAND = 1.2;
+    public static double HEADING_DEADBAND = 2.5;
     public static double HEADING_MAX_POWER = 0.55;
     public static double NOMINAL_VOLTAGE = 12.5;
 
@@ -40,9 +40,9 @@ public class kebabAutoHelper {
     public static double KS_MIN_ERROR_DEG = 4.0;
 
     // Corecție de poziție în timpul rotației
-    public static double HOLD_XY_KP = 0.0038;
-    public static double HOLD_XY_MAX_POWER = 0.32;
-    public static double HOLD_XY_TOLERANCE_MM = 12;
+    public static double HOLD_XY_KP = 0.002;
+    public static double HOLD_XY_MAX_POWER = 0.18;
+    public static double HOLD_XY_TOLERANCE_MM = 55;
 
     // =======================================================
 
@@ -203,12 +203,22 @@ public class kebabAutoHelper {
 
         // Deadband heading
         if (Math.abs(errorHeading) <= HEADING_DEADBAND) {
+
+            // Dacă suntem destul de aproape pe XY → gata
             if (distance <= HOLD_XY_TOLERANCE_MM) {
                 stop();
                 doneHeading = true;
                 return;
             }
-            // Doar corecție de poziție, fără turn
+
+            // Dacă heading-ul e foarte bun (< 1.5°) și distanța nu e uriașă → acceptăm și oprim
+            if (Math.abs(errorHeading) < 1.5 && distance < 80) {
+                stop();
+                doneHeading = true;
+                return;
+            }
+
+            // Altfel doar corectează poziția (fără turn)
             setDriveTurn(drivePower, 0);
             doneHeading = false;
             return;
