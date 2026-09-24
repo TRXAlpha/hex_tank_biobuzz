@@ -34,7 +34,7 @@ public class AutoParcare extends OpMode {
         boolean doneXY = drive.getStatusXY();
         boolean doneHeading = drive.getStatusHeading();
         if(!doneXY) {
-            drive.updateXY(TARGET_X, TARGET_Y,telemetry);
+            //drive.updateXY(TARGET_X, TARGET_Y,telemetry);
         }
         if(!doneHeading && doneXY){
             drive.updateHeading(TARGET_HEADING,telemetry);

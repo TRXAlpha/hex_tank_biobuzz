@@ -1,4 +1,4 @@
-package org.firstinspires.ftc.teamcode;
+package org.firstinspires.ftc.teamcode.kebab;
 
 import com.acmerobotics.dashboard.config.Config;
 import com.qualcomm.hardware.gobilda.GoBildaPinpointDriver;
@@ -7,52 +7,42 @@ import com.qualcomm.robotcore.hardware.DcMotorSimple;
 import com.qualcomm.robotcore.hardware.HardwareMap;
 import com.qualcomm.robotcore.util.Range;
 
-import org.firstinspires.ftc.robotcore.external.Telemetry;
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.Pose2D;
+import org.firstinspires.ftc.robotcore.external.Telemetry;
 
-
-/// cod de pe github
-/// cu valorile lui kebab
-/// defapt pare ca merge si codul de dinainte, dar am aflat asta dupa ce am copiat codul
-/// so folosim asta acum
-/// plus reset ca sa poata fi folosit de mai multe ori in acelasi cod
-/// pare ca merge destul de bine
-/// la valori sunt schimbate DISTANCE_TOLERANCE_MM (10->3) si HEADING_DEADBAND (0.6->3)
-/// D pe toate locurile unde era deja P
 @Config
-public class gtpHelperKebabCuResetCuD {
+public class kebabAutoHelper {
 
     // ===================== GO-TO-POINT =====================
 
-    public static double DISTANCE_TOLERANCE_MM = 3;
-    public static double HEADING_LOCK_DEG = 10;
-    public static double HEADING_DEADBAND_DEG = 1.5;
+    public static double DISTANCE_TOLERANCE_MM = 15;
+    public static double HEADING_LOCK_DEG = 12;
+    public static double HEADING_DEADBAND_DEG = 2;
+    public static double KP_DRIVE = 0.0030;
+    public static double KP_TURN = 0.018;
+    public static double MAX_POWER = 0.70;
+    public static double MIN_DRIVE_POWER = 0.28;
+    public static double MIN_TURN_POWER = 0.28;
+    public static double TRANSLATE_TURN_SCALE = 0.45;
 
-    public static double KP_DRIVE = 0.0035;
-    public static double KD_DRIVE = 0.0003;
+    // ===================== HEADING + HOLD XY =====================
 
-    public static double KP_TURN = 0.02;
-    public static double KD_TURN = 0.0001;
-
-    public static double MAX_POWER = 0.75;
-    public static double MIN_DRIVE_POWER = 0.25;
-    public static double MIN_TURN_POWER = 0.25;
-    public static double TRANSLATE_TURN_SCALE = 0.5;
-
-    // ===================== HEADING PE LOC =====================
-
-    public static double HEADING_KP = 0.55;
-    public static double HEADING_KD = 0.001;
-    public static double HEADING_TANH_SCALE = 2.0;
-    public static double HEADING_KS = 0.18;
-    public static double HEADING_DEADBAND = 3;
-    public static double HEADING_MAX_POWER = 0.7;
+    public static double HEADING_KP = 0.38;
+    public static double HEADING_TANH_SCALE = 1.8;
+    public static double HEADING_KS = 0.12;
+    public static double HEADING_DEADBAND = 2.5;
+    public static double HEADING_MAX_POWER = 0.55;
     public static double NOMINAL_VOLTAGE = 12.5;
 
     // Prag pentru aplicarea kS
-    public static double KS_MIN_ERROR_DEG = 3.0;
+    public static double KS_MIN_ERROR_DEG = 4.0;
+
+    // Corecție de poziție în timpul rotației
+    public static double HOLD_XY_KP = 0.002;
+    public static double HOLD_XY_MAX_POWER = 0.18;
+    public static double HOLD_XY_TOLERANCE_MM = 55;
 
     // =======================================================
 
@@ -65,12 +55,8 @@ public class gtpHelperKebabCuResetCuD {
 
     private boolean doneXY = false;
     private boolean doneHeading = false;
-    private double lastDistanceError = 0;
-    private double lastHeadingErrorXY = 0;
-    private double lastHeadingError = 0;
-    private long lastTimeNs = 0;
 
-    public gtpHelperKebabCuResetCuD(
+    public kebabAutoHelper(
             DcMotor stanga,
             DcMotor dreapta,
             GoBildaPinpointDriver pinpoint,
@@ -82,7 +68,7 @@ public class gtpHelperKebabCuResetCuD {
         this.hardwareMap = hardwareMap;
     }
 
-    public static gtpHelperKebabCuResetCuD fromHardwareMap(
+    public static kebabAutoHelper fromHardwareMap(
             HardwareMap hardwareMap,
             String leftName,
             String rightName,
@@ -113,7 +99,7 @@ public class gtpHelperKebabCuResetCuD {
 
         pinpoint.resetPosAndIMU();
 
-        return new gtpHelperKebabCuResetCuD(stanga, dreapta, pinpoint, hardwareMap);
+        return new kebabAutoHelper(stanga, dreapta, pinpoint, hardwareMap);
     }
 
     // =========================================================
@@ -136,8 +122,6 @@ public class gtpHelperKebabCuResetCuD {
         if (distance <= DISTANCE_TOLERANCE_MM) {
             stop();
             doneXY = true;
-            lastDistanceError = 0;
-            lastHeadingErrorXY = 0;
             return;
         }
 
@@ -145,24 +129,9 @@ public class gtpHelperKebabCuResetCuD {
                 Math.toDegrees(Math.atan2(dy, dx))
                         - pose.getHeading(AngleUnit.DEGREES));
 
-        // --- calcul dt (secunde) ---
-        long now = System.nanoTime();
-        double dt = (lastTimeNs == 0) ? 0.02 : (now - lastTimeNs) / 1e9;
-        lastTimeNs = now;
-        dt = Math.max(dt, 0.005); // protectie impotriva dt prea mic
-
-        // --- derivata ---
-        double dDistance = (distance - lastDistanceError) / dt;
-        double dHeading  = (headingError - lastHeadingErrorXY) / dt;
-
-        lastDistanceError = distance;
-        lastHeadingErrorXY = headingError;
-
         t.addData("x error", dx);
         t.addData("y error", dy);
         t.addData("heading error", headingError);
-        t.addData("dDistance", dDistance);
-        t.addData("dHeading", dHeading);
 
         double driveSign = 1.0;
 
@@ -178,116 +147,131 @@ public class gtpHelperKebabCuResetCuD {
         double turnPower;
 
         if (Math.abs(headingError) > HEADING_LOCK_DEG) {
-
             drivePower = 0.0;
-
-            // P + D pe turn
-            double turnRaw = KP_TURN * headingError + KD_TURN * dHeading;
-            turnPower = applyMinPower(turnRaw, MIN_TURN_POWER);
-
+            turnPower = applyMinPower(KP_TURN * headingError, MIN_TURN_POWER);
         } else {
+            drivePower = applyMinPower(
+                    driveSign * KP_DRIVE * distance,
+                    MIN_DRIVE_POWER);
 
-            // P + D pe drive
-            double driveRaw = driveSign * (KP_DRIVE * distance + KD_DRIVE * dDistance);
-            drivePower = applyMinPower(driveRaw, MIN_DRIVE_POWER);
-
-            // P + D pe turn (scalat)
-            if (Math.abs(headingError) < HEADING_DEADBAND_DEG) {
-                turnPower = 0.0;
-            } else {
-                turnPower = (KP_TURN * headingError + KD_TURN * dHeading) * TRANSLATE_TURN_SCALE;
-            }
+            turnPower = Math.abs(headingError) < HEADING_DEADBAND_DEG
+                    ? 0.0
+                    : KP_TURN * headingError * TRANSLATE_TURN_SCALE;
         }
 
         setDriveTurn(drivePower, turnPower);
-
         doneXY = false;
     }
 
     // =========================================================
-    //               HEADING DOAR PE LOC
+    //               HEADING + HOLD XY
     // =========================================================
 
     public void updateHeading(
             double targetHeadingDeg,
+            double targetX_mm,
+            double targetY_mm,
             Telemetry t) {
 
         pinpoint.update();
         pose = pinpoint.getPosition();
 
-        double current = pose.getHeading(AngleUnit.DEGREES);
+        double currentHeading = pose.getHeading(AngleUnit.DEGREES);
+        double errorHeading = normalizeAngle(targetHeadingDeg - currentHeading);
 
-        // Cea mai scurtă diferență unghiulară
-        double error = normalizeAngle(targetHeadingDeg - current);
+        // === Corecție XY (hold position) ===
+        double dx = targetX_mm - pose.getX(DistanceUnit.MM);
+        double dy = targetY_mm - pose.getY(DistanceUnit.MM);
+        double distance = Math.hypot(dx, dy);
+
+        double drivePower = 0.0;
+
+        if (distance > HOLD_XY_TOLERANCE_MM) {
+            double absAngleToTarget = Math.toDegrees(Math.atan2(dy, dx));
+            double relativeAngle = normalizeAngle(absAngleToTarget - currentHeading);
+
+            // Proiecție pe axa robotului (forward / back)
+            drivePower = HOLD_XY_KP * distance * Math.cos(Math.toRadians(relativeAngle));
+            drivePower = Range.clip(drivePower, -HOLD_XY_MAX_POWER, HOLD_XY_MAX_POWER);
+        }
 
         t.addData("target heading", targetHeadingDeg);
-        t.addData("current heading", current);
-        t.addData("heading error", error);
+        t.addData("current heading", currentHeading);
+        t.addData("heading error", errorHeading);
+        t.addData("hold XY distance", distance);
+        t.addData("hold drivePower", drivePower);
 
-        // ========== FIX IMPORTANT ==========
-        // Folosim error-ul normalizat, NU diferența brută
-        if (Math.abs(error) <= HEADING_DEADBAND) {
-            stop();
-            doneHeading = true;
-            lastHeadingError = 0;
+        // Deadband heading
+        if (Math.abs(errorHeading) <= HEADING_DEADBAND) {
+
+            // Dacă suntem destul de aproape pe XY → gata
+            if (distance <= HOLD_XY_TOLERANCE_MM) {
+                stop();
+                doneHeading = true;
+                return;
+            }
+
+            // Dacă heading-ul e foarte bun (< 1.5°) și distanța nu e uriașă → acceptăm și oprim
+            if (Math.abs(errorHeading) < 1.5 && distance < 80) {
+                stop();
+                doneHeading = true;
+                return;
+            }
+
+            // Altfel doar corectează poziția (fără turn)
+            setDriveTurn(drivePower, 0);
+            doneHeading = false;
             return;
         }
-        // ===================================
 
-        // --- calcul dt ---
-        long now = System.nanoTime();
-        double dt = (lastTimeNs == 0) ? 0.02 : (now - lastTimeNs) / 1e9;
-        lastTimeNs = now;
-        dt = Math.max(dt, 0.005);
+        // Controller tanh + kS
+        double raw = Math.tanh(Math.toRadians(errorHeading) * HEADING_TANH_SCALE) * HEADING_KP;
 
-        double dError = (error - lastHeadingError) / dt;
-        lastHeadingError = error;
-
-        t.addData("dHeading", dError);
-
-        // Controller tanh (P) + D
-        double rawP = Math.tanh(Math.toRadians(error) * HEADING_TANH_SCALE) * HEADING_KP;
-        double rawD = HEADING_KD * dError;
-
-        double power = rawP + rawD;
-
-        // kS doar la erori mai mari
-        if (Math.abs(error) > KS_MIN_ERROR_DEG) {
-            power = power + Math.copySign(HEADING_KS, power);
+        double turnPower;
+        if (Math.abs(errorHeading) > KS_MIN_ERROR_DEG) {
+            turnPower = raw + Math.copySign(HEADING_KS, raw);
+        } else {
+            turnPower = raw;
         }
 
         // Compensare tensiune
-        double battery = hardwareMap.voltageSensor
-                .iterator()
-                .next()
-                .getVoltage();
-
+        double battery = hardwareMap.voltageSensor.iterator().next().getVoltage();
         double scale = NOMINAL_VOLTAGE / battery;
-        power *= scale;
+        turnPower *= scale;
 
-        power = Range.clip(power, -HEADING_MAX_POWER, HEADING_MAX_POWER);
+        turnPower = Range.clip(turnPower, -HEADING_MAX_POWER, HEADING_MAX_POWER);
 
-        // Puteri opuse = rotație pe loc
-        stanga.setPower(-power);
-        dreapta.setPower(power);
+        // Combinăm drive (hold XY) + turn
+        setDriveTurn(drivePower, turnPower);
 
         doneHeading = false;
+    }
+
+    // =========================================================
+    //                       LAP
+    // =========================================================
+
+    public boolean lap(double targetHeadingDeg,
+                       double targetX_mm,
+                       double targetY_mm,
+                       Telemetry t) {
+
+        boolean doneXY = this.getStatusXY();
+        boolean doneHeading = this.getStatusHeading();
+        boolean done = doneXY && doneHeading;
+
+        if (!doneXY) {
+            this.updateXY(targetX_mm, targetY_mm, t);
+        }
+        if (!doneHeading && doneXY) {
+            this.updateHeading(targetHeadingDeg, targetX_mm, targetY_mm, t);
+        }
+        return done;
     }
 
     // =========================================================
     //                    UTILITARE
     // =========================================================
-
-    public void reset() {
-        doneXY = false;
-        doneHeading = false;
-
-        // reset și stările de derivată ca să nu aibă spike la următorul apel
-        lastDistanceError = 0;
-        lastHeadingErrorXY = 0;
-        lastHeadingError = 0;
-        lastTimeNs = 0;
-    }
 
     public void stop() {
         stanga.setPower(0);
@@ -315,7 +299,6 @@ public class gtpHelperKebabCuResetCuD {
     }
 
     private void setDriveTurn(double drive, double turn) {
-
         drive = clamp(drive, -MAX_POWER, MAX_POWER);
         turn = clamp(turn, -MAX_POWER, MAX_POWER);
 
@@ -338,7 +321,6 @@ public class gtpHelperKebabCuResetCuD {
 
     private static double applyMinPower(double power, double minPower) {
         if (power == 0) return 0;
-
         return Math.abs(power) < minPower
                 ? Math.copySign(minPower, power)
                 : power;
@@ -349,13 +331,8 @@ public class gtpHelperKebabCuResetCuD {
     // =========================================================
 
     private static double normalizeAngle(double angleDeg) {
-
-        while (angleDeg > 180)
-            angleDeg -= 360;
-
-        while (angleDeg < -180)
-            angleDeg += 360;
-
+        while (angleDeg > 180) angleDeg -= 360;
+        while (angleDeg < -180) angleDeg += 360;
         return angleDeg;
     }
 

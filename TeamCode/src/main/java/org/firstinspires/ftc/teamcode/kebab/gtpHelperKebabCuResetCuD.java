@@ -1,4 +1,4 @@
-package org.firstinspires.ftc.teamcode;
+package org.firstinspires.ftc.teamcode.kebab;
 
 import com.acmerobotics.dashboard.config.Config;
 import com.qualcomm.hardware.gobilda.GoBildaPinpointDriver;
@@ -7,26 +7,35 @@ import com.qualcomm.robotcore.hardware.DcMotorSimple;
 import com.qualcomm.robotcore.hardware.HardwareMap;
 import com.qualcomm.robotcore.util.Range;
 
+import org.firstinspires.ftc.robotcore.external.Telemetry;
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.Pose2D;
-import org.firstinspires.ftc.robotcore.external.Telemetry;
 
 
 /// cod de pe github
 /// cu valorile lui kebab
 /// defapt pare ca merge si codul de dinainte, dar am aflat asta dupa ce am copiat codul
 /// so folosim asta acum
+/// plus reset ca sa poata fi folosit de mai multe ori in acelasi cod
+/// pare ca merge destul de bine
+/// la valori sunt schimbate DISTANCE_TOLERANCE_MM (10->3) si HEADING_DEADBAND (0.6->3)
+/// D pe toate locurile unde era deja P
 @Config
-public class gtpHelperKebab {
+public class gtpHelperKebabCuResetCuD {
 
     // ===================== GO-TO-POINT =====================
 
-    public static double DISTANCE_TOLERANCE_MM = 10;
+    public static double DISTANCE_TOLERANCE_MM = 3;
     public static double HEADING_LOCK_DEG = 10;
     public static double HEADING_DEADBAND_DEG = 1.5;
+
     public static double KP_DRIVE = 0.0035;
+    public static double KD_DRIVE = 0.0003;
+
     public static double KP_TURN = 0.02;
+    public static double KD_TURN = 0.0001;
+
     public static double MAX_POWER = 0.75;
     public static double MIN_DRIVE_POWER = 0.25;
     public static double MIN_TURN_POWER = 0.25;
@@ -35,9 +44,10 @@ public class gtpHelperKebab {
     // ===================== HEADING PE LOC =====================
 
     public static double HEADING_KP = 0.55;
+    public static double HEADING_KD = 0.001;
     public static double HEADING_TANH_SCALE = 2.0;
     public static double HEADING_KS = 0.18;
-    public static double HEADING_DEADBAND = 0.6;
+    public static double HEADING_DEADBAND = 3;
     public static double HEADING_MAX_POWER = 0.7;
     public static double NOMINAL_VOLTAGE = 12.5;
 
@@ -55,8 +65,12 @@ public class gtpHelperKebab {
 
     private boolean doneXY = false;
     private boolean doneHeading = false;
+    private double lastDistanceError = 0;
+    private double lastHeadingErrorXY = 0;
+    private double lastHeadingError = 0;
+    private long lastTimeNs = 0;
 
-    public gtpHelperKebab(
+    public gtpHelperKebabCuResetCuD(
             DcMotor stanga,
             DcMotor dreapta,
             GoBildaPinpointDriver pinpoint,
@@ -68,7 +82,7 @@ public class gtpHelperKebab {
         this.hardwareMap = hardwareMap;
     }
 
-    public static gtpHelperKebab fromHardwareMap(
+    public static gtpHelperKebabCuResetCuD fromHardwareMap(
             HardwareMap hardwareMap,
             String leftName,
             String rightName,
@@ -99,7 +113,7 @@ public class gtpHelperKebab {
 
         pinpoint.resetPosAndIMU();
 
-        return new gtpHelperKebab(stanga, dreapta, pinpoint, hardwareMap);
+        return new gtpHelperKebabCuResetCuD(stanga, dreapta, pinpoint, hardwareMap);
     }
 
     // =========================================================
@@ -122,6 +136,8 @@ public class gtpHelperKebab {
         if (distance <= DISTANCE_TOLERANCE_MM) {
             stop();
             doneXY = true;
+            lastDistanceError = 0;
+            lastHeadingErrorXY = 0;
             return;
         }
 
@@ -129,9 +145,24 @@ public class gtpHelperKebab {
                 Math.toDegrees(Math.atan2(dy, dx))
                         - pose.getHeading(AngleUnit.DEGREES));
 
+        // --- calcul dt (secunde) ---
+        long now = System.nanoTime();
+        double dt = (lastTimeNs == 0) ? 0.02 : (now - lastTimeNs) / 1e9;
+        lastTimeNs = now;
+        dt = Math.max(dt, 0.005); // protectie impotriva dt prea mic
+
+        // --- derivata ---
+        double dDistance = (distance - lastDistanceError) / dt;
+        double dHeading  = (headingError - lastHeadingErrorXY) / dt;
+
+        lastDistanceError = distance;
+        lastHeadingErrorXY = headingError;
+
         t.addData("x error", dx);
         t.addData("y error", dy);
         t.addData("heading error", headingError);
+        t.addData("dDistance", dDistance);
+        t.addData("dHeading", dHeading);
 
         double driveSign = 1.0;
 
@@ -150,20 +181,22 @@ public class gtpHelperKebab {
 
             drivePower = 0.0;
 
-            turnPower = applyMinPower(
-                    KP_TURN * headingError,
-                    MIN_TURN_POWER);
+            // P + D pe turn
+            double turnRaw = KP_TURN * headingError + KD_TURN * dHeading;
+            turnPower = applyMinPower(turnRaw, MIN_TURN_POWER);
 
         } else {
 
-            drivePower = applyMinPower(
-                    driveSign * KP_DRIVE * distance,
-                    MIN_DRIVE_POWER);
+            // P + D pe drive
+            double driveRaw = driveSign * (KP_DRIVE * distance + KD_DRIVE * dDistance);
+            drivePower = applyMinPower(driveRaw, MIN_DRIVE_POWER);
 
-            turnPower =
-                    Math.abs(headingError) < HEADING_DEADBAND_DEG
-                            ? 0.0
-                            : KP_TURN * headingError * TRANSLATE_TURN_SCALE;
+            // P + D pe turn (scalat)
+            if (Math.abs(headingError) < HEADING_DEADBAND_DEG) {
+                turnPower = 0.0;
+            } else {
+                turnPower = (KP_TURN * headingError + KD_TURN * dHeading) * TRANSLATE_TURN_SCALE;
+            }
         }
 
         setDriveTurn(drivePower, turnPower);
@@ -196,23 +229,31 @@ public class gtpHelperKebab {
         if (Math.abs(error) <= HEADING_DEADBAND) {
             stop();
             doneHeading = true;
+            lastHeadingError = 0;
             return;
         }
         // ===================================
 
-        // Controller tanh
-        double raw = Math.tanh(
-                Math.toRadians(error) * HEADING_TANH_SCALE)
-                * HEADING_KP;
+        // --- calcul dt ---
+        long now = System.nanoTime();
+        double dt = (lastTimeNs == 0) ? 0.02 : (now - lastTimeNs) / 1e9;
+        lastTimeNs = now;
+        dt = Math.max(dt, 0.005);
 
-        double power;
+        double dError = (error - lastHeadingError) / dt;
+        lastHeadingError = error;
+
+        t.addData("dHeading", dError);
+
+        // Controller tanh (P) + D
+        double rawP = Math.tanh(Math.toRadians(error) * HEADING_TANH_SCALE) * HEADING_KP;
+        double rawD = HEADING_KD * dError;
+
+        double power = rawP + rawD;
 
         // kS doar la erori mai mari
         if (Math.abs(error) > KS_MIN_ERROR_DEG) {
-            power = raw + Math.copySign(HEADING_KS, raw);
-        } else {
-            // Aproape de țintă – fără kS ca să reducă oscilația
-            power = raw;
+            power = power + Math.copySign(HEADING_KS, power);
         }
 
         // Compensare tensiune
@@ -227,8 +268,8 @@ public class gtpHelperKebab {
         power = Range.clip(power, -HEADING_MAX_POWER, HEADING_MAX_POWER);
 
         // Puteri opuse = rotație pe loc
-        stanga.setPower(power);
-        dreapta.setPower(-power);
+        stanga.setPower(-power);
+        dreapta.setPower(power);
 
         doneHeading = false;
     }
@@ -236,6 +277,17 @@ public class gtpHelperKebab {
     // =========================================================
     //                    UTILITARE
     // =========================================================
+
+    public void reset() {
+        doneXY = false;
+        doneHeading = false;
+
+        // reset și stările de derivată ca să nu aibă spike la următorul apel
+        lastDistanceError = 0;
+        lastHeadingErrorXY = 0;
+        lastHeadingError = 0;
+        lastTimeNs = 0;
+    }
 
     public void stop() {
         stanga.setPower(0);

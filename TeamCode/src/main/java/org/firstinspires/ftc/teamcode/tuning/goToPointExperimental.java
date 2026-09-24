@@ -33,7 +33,7 @@ public class goToPointExperimental extends OpMode {
     public static double HEADING_TOLERANCE_DEG =    5;
     public static double TARGET_HEADING_DEG = 0;
     public static double COR_FORWARD_MM = -100;
-    public static double COR_LEFT_MM = 5;
+    public static double COR_LEFT_MM = 0;
     public static boolean terminat = false;
     boolean positionReached = false;
     @Override

@@ -1,4 +1,4 @@
-package org.firstinspires.ftc.teamcode.tuning;
+package org.firstinspires.ftc.teamcode.kebab;
 
 import com.acmerobotics.dashboard.FtcDashboard;
 import com.acmerobotics.dashboard.config.Config;
@@ -6,13 +6,11 @@ import com.acmerobotics.dashboard.telemetry.MultipleTelemetry;
 import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 
-import org.firstinspires.ftc.teamcode.gtpHelperKebab;
-import org.firstinspires.ftc.teamcode.gtpHelperKebabCuReset;
-
-/// test pentru patrat folosind gtpHelperKebab
+/// test pentru patrat folosind gtpHelperKebabCuD
+/// pare ca mai trebuie tunat,dar e cat de cat functional
 @Config
-@Autonomous(name = "test patrat kebab helper")
-public class AutoTestPatratGtpHelperKebab extends OpMode {
+@Autonomous(name = "test patrat kebab helper D")
+public class AutoTestPatratGtpHelperKebabD extends OpMode {
 
     public static double TARGET_X_1 = 600;
     public static double TARGET_Y_1 = 0;
@@ -30,12 +28,12 @@ public class AutoTestPatratGtpHelperKebab extends OpMode {
 
     private int counter = 0;
 
-    private gtpHelperKebabCuReset drive;
+    private gtpHelperKebabCuResetCuD drive;
 
     @Override
     public void init() {
         telemetry = new MultipleTelemetry(telemetry, FtcDashboard.getInstance().getTelemetry());
-        drive = gtpHelperKebabCuReset.fromHardwareMap(hardwareMap, "stanga", "dreapta", "pinpoint", 50, 0);
+        drive = gtpHelperKebabCuResetCuD.fromHardwareMap(hardwareMap, "stanga", "dreapta", "pinpoint", 50, 0);
     }
 
     @Override

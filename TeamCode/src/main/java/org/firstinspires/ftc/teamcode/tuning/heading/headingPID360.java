@@ -1,4 +1,4 @@
-package org.firstinspires.ftc.teamcode.tuning;
+package org.firstinspires.ftc.teamcode.tuning.heading;
 
 import com.acmerobotics.dashboard.config.Config;
 import com.qualcomm.hardware.gobilda.GoBildaPinpointDriver;
@@ -6,25 +6,31 @@ import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
+import com.qualcomm.robotcore.hardware.VoltageSensor;
 import com.qualcomm.robotcore.util.Range;
 
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
-import org.firstinspires.ftc.robotcore.external.navigation.Pose2D;
 
-@TeleOp(name = "Smooth Heading Drive Tuner (Pinpoint)", group = "Tuning")
+@TeleOp(name = "Heading Tuner Unwrapped (Pinpoint)", group = "Tuning")
 @Config
-public class headingPID extends OpMode {
+public class headingPID360 extends OpMode {
 
     public static double nominalVoltage = 12.5;
     public static double kP = 0.55;
     public static double tanhScale = 2.0;
     public static double kS = 0.2;
     public static double maxPower = 1.0;
+    public static double deadbandDeg = 0.4;
+    public static double rightBias = 0.017;
     public static double targetHeadingDeg = 0.0;
 
     DcMotorEx stanga, dreapta;
     GoBildaPinpointDriver pinpoint;
+    VoltageSensor voltageSensor;
+
+    double unwrappedHeading = 0;
+    double lastRawHeading = Double.NaN;
 
     @Override
     public void init() {
@@ -37,57 +43,55 @@ public class headingPID extends OpMode {
         stanga.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         dreapta.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
 
+        voltageSensor = hardwareMap.voltageSensor.iterator().next();
+
         pinpoint = hardwareMap.get(GoBildaPinpointDriver.class, "pinpoint");
-        pinpoint.setOffsets(50, 0, DistanceUnit.MM); // change these to your real offsets
+        pinpoint.setOffsets(50, 0, DistanceUnit.MM);
         pinpoint.setEncoderResolution(GoBildaPinpointDriver.GoBildaOdometryPods.goBILDA_4_BAR_POD);
         pinpoint.resetPosAndIMU();
+
+        unwrappedHeading = 0;
+        lastRawHeading = Double.NaN;
     }
 
     @Override
     public void loop() {
         pinpoint.update();
 
-        double batteryVoltage = hardwareMap.voltageSensor.iterator().next().getVoltage();
+        double rawHeading = pinpoint.getPosition().getHeading(AngleUnit.DEGREES);
+        if (!Double.isNaN(lastRawHeading)) {
+            unwrappedHeading += normalizeAngle(rawHeading - lastRawHeading);
+        }
+        lastRawHeading = rawHeading;
 
-        Pose2D pose = pinpoint.getPosition();
-        double currentHeading = pose.getHeading(AngleUnit.DEGREES);
-
-        double error = targetHeadingDeg - currentHeading;
-
-        // tanh controller
-        double raw = Math.tanh(Math.toRadians(error) * tanhScale) * kP;
-
-        double power;
-        if (Math.abs(error) < 0.4) power = 0;
-        else power = raw + Math.copySign(kS, raw);
-
-
-        // Voltage compensation
+        double error = targetHeadingDeg - unwrappedHeading;
+        double batteryVoltage = voltageSensor.getVoltage();
         double scale = nominalVoltage / batteryVoltage;
-        double compensatedPower = power * scale;
 
-        // Optional: boost kS a bit when battery is low
-        double dynamicKS = kS * (12.0 / batteryVoltage);
-        if (Math.abs(error) >= 0.4) {
-            compensatedPower += Math.copySign(dynamicKS - kS, compensatedPower);
+        double power = 0;
+        if (Math.abs(error) >= deadbandDeg) {
+            double raw = Math.tanh(Math.toRadians(error) * tanhScale) * kP;
+            power = (raw + Math.copySign(kS, raw)) * scale;
+            power = Range.clip(power, -maxPower, maxPower);
         }
 
-        compensatedPower = Range.clip(compensatedPower, -maxPower, maxPower);
+        double bias = power == 0 ? 0 : rightBias;
+        stanga.setPower(power);
+        dreapta.setPower(power + bias);
 
-        stanga.setPower(compensatedPower);
-        dreapta.setPower(compensatedPower + 0.017);
-
-        // Telemetry
         telemetry.addData("Target", "%.1f°", targetHeadingDeg);
-        telemetry.addData("Current", "%.1f°", currentHeading);
+        telemetry.addData("Unwrapped", "%.1f°", unwrappedHeading);
+        telemetry.addData("Raw heading", "%.1f°", rawHeading);
         telemetry.addData("Error", "%.2f°", error);
-        telemetry.addData("Raw Power", "%.3f", power);
-        telemetry.addData("Compensated", "%.3f", compensatedPower);
+        telemetry.addData("Power", "%.3f", power);
         telemetry.addData("Battery V", "%.2f", batteryVoltage);
         telemetry.addData("Scale", "%.3f", scale);
-        telemetry.addData("kP", kP);
-        telemetry.addData("tanhScale", tanhScale);
-        telemetry.addData("kS", kS);
         telemetry.update();
+    }
+
+    private double normalizeAngle(double angleDeg) {
+        while (angleDeg > 180) angleDeg -= 360;
+        while (angleDeg < -180) angleDeg += 360;
+        return angleDeg;
     }
 }

@@ -1,4 +1,4 @@
-package org.firstinspires.ftc.teamcode;
+package org.firstinspires.ftc.teamcode.kebab;
 
 import com.acmerobotics.dashboard.config.Config;
 import com.qualcomm.hardware.gobilda.GoBildaPinpointDriver;
@@ -7,25 +7,22 @@ import com.qualcomm.robotcore.hardware.DcMotorSimple;
 import com.qualcomm.robotcore.hardware.HardwareMap;
 import com.qualcomm.robotcore.util.Range;
 
-import org.firstinspires.ftc.robotcore.external.Telemetry;
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.Pose2D;
+import org.firstinspires.ftc.robotcore.external.Telemetry;
 
 
 /// cod de pe github
 /// cu valorile lui kebab
 /// defapt pare ca merge si codul de dinainte, dar am aflat asta dupa ce am copiat codul
 /// so folosim asta acum
-/// plus reset ca sa poata fi folosit de mai multe ori in acelasi cod
-/// pare ca merge destul de bine
-/// la valori sunt schimbate DISTANCE_TOLERANCE_MM (10->3) si HEADING_DEADBAND (0.6->3)
 @Config
-public class gtpHelperKebabCuReset {
+public class gtpHelperKebab {
 
     // ===================== GO-TO-POINT =====================
 
-    public static double DISTANCE_TOLERANCE_MM = 3;
+    public static double DISTANCE_TOLERANCE_MM = 10;
     public static double HEADING_LOCK_DEG = 10;
     public static double HEADING_DEADBAND_DEG = 1.5;
     public static double KP_DRIVE = 0.0035;
@@ -40,7 +37,7 @@ public class gtpHelperKebabCuReset {
     public static double HEADING_KP = 0.55;
     public static double HEADING_TANH_SCALE = 2.0;
     public static double HEADING_KS = 0.18;
-    public static double HEADING_DEADBAND = 3;
+    public static double HEADING_DEADBAND = 0.6;
     public static double HEADING_MAX_POWER = 0.7;
     public static double NOMINAL_VOLTAGE = 12.5;
 
@@ -59,7 +56,7 @@ public class gtpHelperKebabCuReset {
     private boolean doneXY = false;
     private boolean doneHeading = false;
 
-    public gtpHelperKebabCuReset(
+    public gtpHelperKebab(
             DcMotor stanga,
             DcMotor dreapta,
             GoBildaPinpointDriver pinpoint,
@@ -71,7 +68,7 @@ public class gtpHelperKebabCuReset {
         this.hardwareMap = hardwareMap;
     }
 
-    public static gtpHelperKebabCuReset fromHardwareMap(
+    public static gtpHelperKebab fromHardwareMap(
             HardwareMap hardwareMap,
             String leftName,
             String rightName,
@@ -102,7 +99,7 @@ public class gtpHelperKebabCuReset {
 
         pinpoint.resetPosAndIMU();
 
-        return new gtpHelperKebabCuReset(stanga, dreapta, pinpoint, hardwareMap);
+        return new gtpHelperKebab(stanga, dreapta, pinpoint, hardwareMap);
     }
 
     // =========================================================
@@ -230,8 +227,8 @@ public class gtpHelperKebabCuReset {
         power = Range.clip(power, -HEADING_MAX_POWER, HEADING_MAX_POWER);
 
         // Puteri opuse = rotație pe loc
-        stanga.setPower(-power);
-        dreapta.setPower(power);
+        stanga.setPower(power);
+        dreapta.setPower(-power);
 
         doneHeading = false;
     }
@@ -239,11 +236,6 @@ public class gtpHelperKebabCuReset {
     // =========================================================
     //                    UTILITARE
     // =========================================================
-
-    public void reset(){
-        doneXY=false;
-        doneHeading=false;
-    }
 
     public void stop() {
         stanga.setPower(0);
