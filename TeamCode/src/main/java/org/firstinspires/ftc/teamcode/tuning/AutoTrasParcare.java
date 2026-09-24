@@ -13,22 +13,19 @@ import org.firstinspires.ftc.teamcode.AutoHelper;
 @Config
 @Autonomous(name = "auto tras parcare")
 public class AutoTrasParcare extends OpMode {
-    public static double x_start=0;
-    public static double y_start=0;
-    public static double start_heading=0;
-    public static double timer_start=5;
-
-    public static double x_parcare = 2370;
-    public static double y_parcare = 950;
     public static double heading_parcare = 0;
-    private static boolean start_parcare=false;
-
-    public static double x_shoot = 0;
-    public static double y_shoot = 0;
     public static double heading_shoot = 0;
-    public static boolean start_shoot=false;
-    public static boolean shooting=false;
-    public static double timer_shooting=5;
+    public static boolean shooting = false;
+    public static double start_heading = 0;
+    public static boolean start_shoot = false;
+    public static double timer_shooting = 5;
+    public static double timer_start = 5;
+    public static double x_parcare = 2370;
+    public static double x_shoot = 150;
+    public static double x_start = 0;
+    public static double y_parcare = 950;
+    public static double y_shoot = 950;
+    public static double y_start = 0;
 
     private AutoHelper drive;
 
@@ -36,7 +33,7 @@ public class AutoTrasParcare extends OpMode {
     private ElapsedTime runtime = new ElapsedTime();
     private ElapsedTime statetimer = new ElapsedTime();
 
-    private enum State { WAIT_START, GO_SHOOT, SHOOT, GO_PARK, PARKED, GO_START, DONE }
+    private enum State { WAIT_START, GO_SHOOT, SHOOT,   GO_PARK, PARKED, GO_START, DONE }
 
     @Override
     public void init() {
