@@ -12,8 +12,8 @@ import com.qualcomm.robotcore.util.Range;
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 
-@TeleOp(name = "Heading Tuner Unwrapped (Pinpoint)", group = "Tuning")
-@Config
+//@TeleOp(name = "Heading Tuner Unwrapped (Pinpoint)", group = "Tuning")
+//@Config
 public class headingPID360 extends OpMode {
 
     public static double nominalVoltage = 12.5;

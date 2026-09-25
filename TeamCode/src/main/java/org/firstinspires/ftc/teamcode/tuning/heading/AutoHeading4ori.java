@@ -1,12 +1,11 @@
 package org.firstinspires.ftc.teamcode.tuning.heading;
 
-import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.util.ElapsedTime;
 
-import org.firstinspires.ftc.teamcode.AutoHelper;
+import org.firstinspires.ftc.teamcode.auto.helpere.AutoHelper;
 
-@Autonomous(name = "tuning heading 4ori")
+//@Autonomous(name = "tuning heading 4ori")
 public class AutoHeading4ori extends OpMode {
     private static final int TURNS = 4;
     private static final double PAUSE_S = 1.0;

@@ -1,4 +1,4 @@
-package org.firstinspires.ftc.teamcode;
+package org.firstinspires.ftc.teamcode.tuning;
 
 import com.acmerobotics.dashboard.config.Config;
 import com.qualcomm.hardware.gobilda.GoBildaPinpointDriver;
@@ -12,7 +12,7 @@ import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 
 @Config
 @Autonomous(name = "fata spate fata spate simplificat", group = "Test")
-public class tankshuttletestsimplu extends OpMode {
+public class fataspatetuning extends OpMode {
 
     public static double legDistance = 100.0;
     public static int cycles = 3;

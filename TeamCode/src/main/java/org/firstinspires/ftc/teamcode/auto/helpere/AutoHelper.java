@@ -1,4 +1,6 @@
-package org.firstinspires.ftc.teamcode;
+package org.firstinspires.ftc.teamcode.auto.helpere;
+
+import static org.firstinspires.ftc.robotcore.external.navigation.AngleUnit.DEGREES;
 
 import com.acmerobotics.dashboard.config.Config;
 import com.qualcomm.hardware.gobilda.GoBildaPinpointDriver;
@@ -41,12 +43,12 @@ public class AutoHelper {
     public static double HEADING_DEADBAND = 0.6;
     public static double HEADING_SETTLE_RATE = 15;
     public static double HEADING_MAX_POWER = 0.9;
-    public static double HEADING_MIN_POWER = 0.6;
+    public static double HEADING_MIN_POWER = 0.4;
     public static double NOMINAL_VOLTAGE = 12.5;
     public static double KS_MIN_ERROR_DEG = 3.0;
 
-    private final DcMotor stanga;
-    private final DcMotor dreapta;
+    public static DcMotor stanga;
+    public static DcMotor dreapta;
     private final GoBildaPinpointDriver pinpoint;
     private final VoltageSensor voltageSensor;
     private final ElapsedTime timer = new ElapsedTime();
@@ -88,7 +90,6 @@ public class AutoHelper {
                 GoBildaPinpointDriver.EncoderDirection.FORWARD,
                 GoBildaPinpointDriver.EncoderDirection.FORWARD);
         pinpoint.resetPosAndIMU();
-
         return new AutoHelper(stanga, dreapta, pinpoint, hardwareMap);
     }
 
@@ -103,7 +104,7 @@ public class AutoHelper {
         targetY = targetY_mm;
         lastHeadingTime = -1;
 
-        double heading = pose.getHeading(AngleUnit.DEGREES);
+        double heading = pose.getHeading(DEGREES);
         double[] offsetNow = rotate(COR_FORWARD_MM, COR_LEFT_MM, heading);
         double[] offsetFinal = rotate(COR_FORWARD_MM, COR_LEFT_MM, finalHeadingDeg);
 
@@ -159,7 +160,7 @@ public class AutoHelper {
     public void updateHeading(double targetHeadingDeg, Telemetry t) {
         refreshPose();
 
-        double current = pose.getHeading(AngleUnit.DEGREES);
+        double current = pose.getHeading(DEGREES);
         double error = normalizeAngle(targetHeadingDeg - current);
 
         double now = timer.seconds();
@@ -215,6 +216,7 @@ public class AutoHelper {
     }
 
     public void resetMove() {
+        pinpoint.update();
         doneXY = false;
         doneHeading = false;
         lastHeadingTime = -1;
@@ -224,7 +226,7 @@ public class AutoHelper {
     //                    UTILITARE
     // =========================================================
 
-    private void refreshPose() {
+    public void refreshPose() {
         pinpoint.update();
         pose = pinpoint.getPosition();
     }
@@ -251,7 +253,7 @@ public class AutoHelper {
     }
 
     public double getHeading() {
-        return pose == null ? 0 : pose.getHeading(AngleUnit.DEGREES);
+        return pose == null ? 0 : pose.getHeading(DEGREES);
     }
 
     public boolean getStatusXY() {

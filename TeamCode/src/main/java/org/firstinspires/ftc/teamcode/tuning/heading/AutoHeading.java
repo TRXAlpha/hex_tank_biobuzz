@@ -1,12 +1,11 @@
 package org.firstinspires.ftc.teamcode.tuning.heading;
 
 import com.qualcomm.hardware.gobilda.GoBildaPinpointDriver;
-import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 
-import org.firstinspires.ftc.teamcode.AutoHelper;
+import org.firstinspires.ftc.teamcode.auto.helpere.AutoHelper;
 
-@Autonomous(name="tuning heading")
+//@Autonomous(name="tuning heading")
 public class AutoHeading extends OpMode {
     private AutoHelper drive;
     GoBildaPinpointDriver pinpoint;
