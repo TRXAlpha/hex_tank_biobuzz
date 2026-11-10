@@ -56,8 +56,8 @@ public class AutoTrasParcareSC extends LinearOpMode {
     // X pod offset: cat de la stanga (+) / dreapta (-) fata de centru e podul X
     // Y pod offset: cat in fata (+) / in spate (-) fata de centru e podul Y
     // Pentru deplasarea in linie dreapta nu conteaza mult, dar completeaza-le corect.
-    private static final double X_POD_OFFSET_MM = 95;  // TODO: masoara
-    private static final double Y_POD_OFFSET_MM = 45;  // TODO: masoara
+    private static final double X_POD_OFFSET_MM = -44.3;
+    private static final double Y_POD_OFFSET_MM = -6.6;
 
     // Daca podul X da valori NEGATIVE cand robotul merge inainte -> schimba in REVERSED
     private static final GoBildaPinpointDriver.EncoderDirection X_DIR =

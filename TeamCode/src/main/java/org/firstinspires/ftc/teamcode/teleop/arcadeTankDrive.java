@@ -10,12 +10,13 @@ import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 
 @TeleOp(name="teleop debug", group="debugging")
 public class  arcadeTankDrive extends OpMode {
-    private DcMotor stanga, dreapta;
+    private DcMotor stanga, dreapta, intake;
     GoBildaPinpointDriver pinpoint;
     @Override
     public void init() {
         stanga  = hardwareMap.get(DcMotor.class, "stanga");
         dreapta = hardwareMap.get(DcMotor.class, "dreapta");
+        intake = hardwareMap.get(DcMotor.class, "intake");
         stanga.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         dreapta.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         // Reverse the left motor so forward stick moves the robot forward
@@ -24,8 +25,8 @@ public class  arcadeTankDrive extends OpMode {
 
         pinpoint = hardwareMap.get(GoBildaPinpointDriver.class, "pinpoint");
         pinpoint.resetPosAndIMU();
-        double podOffsetX_mm = 95;
-        double podOffsetY_mm = 45;
+        double podOffsetX_mm = -44.3;
+        double podOffsetY_mm = -6.6;
         pinpoint.setOffsets(podOffsetX_mm, podOffsetY_mm, DistanceUnit.MM);
         pinpoint.setEncoderResolution(GoBildaPinpointDriver.GoBildaOdometryPods.goBILDA_4_BAR_POD);
         pinpoint.setEncoderDirections(
@@ -39,6 +40,7 @@ public class  arcadeTankDrive extends OpMode {
     }
     @Override
     public void loop(){
+        intake.setPower(1);
         pinpoint.update();
         // Read joysticks (negated because pushing forward is negative by default)
         double putereStanga  = -gamepad1.left_stick_y;

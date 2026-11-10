@@ -26,7 +26,9 @@ public class fataspatetuning extends OpMode {
     public static double kPturn = 0.02;
     public static double maxTurn = 0.3;
 
-    public static double kCross = 10;
+    public static double lookahead = 20;
+    public static double maxCorrection = 20;
+    public static double fadeDistance = 15;
 
     public static double posTolerance = 1.5;
     public static double settleTime = 1;
@@ -41,6 +43,7 @@ public class fataspatetuning extends OpMode {
     private int leg;
     private double targetX;
     private boolean finished;
+    private double maxYDrift;
 
     @Override
     public void init() {
@@ -57,8 +60,8 @@ public class fataspatetuning extends OpMode {
         dreapta.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
 
 
-        double podOffsetX_mm = 95;
-        double podOffsetY_mm = 45;
+        double podOffsetX_mm = -44.3;
+        double podOffsetY_mm = -6.6;
         pinpoint.setOffsets(podOffsetX_mm, podOffsetY_mm, DistanceUnit.MM);
         pinpoint.setEncoderResolution(GoBildaPinpointDriver.GoBildaOdometryPods.goBILDA_4_BAR_POD);
         pinpoint.setEncoderDirections(
@@ -74,6 +77,7 @@ public class fataspatetuning extends OpMode {
         leg = 0;
         targetX = legDistance;
         finished = false;
+        maxYDrift = 0;
         legTimer.reset();
         settleTimer.reset();
     }
@@ -85,12 +89,14 @@ public class fataspatetuning extends OpMode {
         double x = pinpoint.getPosX(DistanceUnit.CM);
         double y = pinpoint.getPosY(DistanceUnit.CM);
         double heading = pinpoint.getHeading(AngleUnit.DEGREES);
+        maxYDrift = Math.max(maxYDrift, Math.abs(y));
 
         if (finished) {
             setPower(0, 0);
             telemetry.addLine("Done");
             telemetry.addData("x", x);
             telemetry.addData("yDrift", y);
+            telemetry.addData("maxYDrift", maxYDrift);
             telemetry.addData("heading", heading);
             telemetry.update();
             return;
@@ -99,7 +105,10 @@ public class fataspatetuning extends OpMode {
         double error = targetX - x;
         double direction = Math.signum(error);
 
-        double desiredHeading = Range.clip(-kCross * y, -20, 20) * direction;
+        // Aim at a point on the line ahead; ease off near the target, a tank can't fix y once stopped
+        double correction = Math.toDegrees(Math.atan2(-y, lookahead));
+        double fade = Math.min(1.0, Math.abs(error) / fadeDistance);
+        double desiredHeading = Range.clip(correction, -maxCorrection, maxCorrection) * direction * fade;
         double headingError = angleWrap(desiredHeading - heading);
         double turn = Range.clip(kPturn * headingError, -maxTurn, maxTurn);
 
@@ -120,6 +129,7 @@ public class fataspatetuning extends OpMode {
         telemetry.addData("x", x);
         telemetry.addData("error", error);
         telemetry.addData("yDrift", y);
+        telemetry.addData("maxYDrift", maxYDrift);
         telemetry.addData("headingError", headingError);
         telemetry.addData("drive", drive);
         telemetry.addData("turn", turn);
