@@ -21,7 +21,7 @@ public class AutoHelper {
 
     // ===================== COR =====================
     // Pozitia COR fata de punctul urmarit, in cadrul robotului
-    public static double COR_FORWARD_MM = -100;
+    public static double COR_FORWARD_MM = 0;
     public static double COR_LEFT_MM = 0;
 
     // ===================== GO-TO-POINT =====================
@@ -87,7 +87,7 @@ public class AutoHelper {
         pinpoint.setOffsets(podOffsetX_mm, podOffsetY_mm, DistanceUnit.MM);
         pinpoint.setEncoderResolution(GoBildaPinpointDriver.GoBildaOdometryPods.goBILDA_4_BAR_POD);
         pinpoint.setEncoderDirections(
-                GoBildaPinpointDriver.EncoderDirection.FORWARD,
+                GoBildaPinpointDriver.EncoderDirection.REVERSED,
                 GoBildaPinpointDriver.EncoderDirection.FORWARD);
         pinpoint.resetPosAndIMU();
         return new AutoHelper(stanga, dreapta, pinpoint, hardwareMap);
