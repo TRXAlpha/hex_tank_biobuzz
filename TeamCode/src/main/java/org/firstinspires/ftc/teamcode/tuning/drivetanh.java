@@ -11,8 +11,8 @@ import com.qualcomm.robotcore.util.Range;
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 
-@Config
-@Autonomous(name = "Smooth Shuttle (Clean + PD)", group = "Test")
+//@Config
+//@Autonomous(name = "Smooth Shuttle (Clean + PD)", group = "Test")
 public class drivetanh extends OpMode {
 
     // ========== Tunable ==========
@@ -57,10 +57,10 @@ public class drivetanh extends OpMode {
         dreapta.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
 
         pinpoint = hardwareMap.get(GoBildaPinpointDriver.class, "pinpoint");
-        pinpoint.setOffsets(-140, 60, DistanceUnit.MM);
+        pinpoint.setOffsets(95, 45, DistanceUnit.MM);
         pinpoint.setEncoderResolution(GoBildaPinpointDriver.GoBildaOdometryPods.goBILDA_4_BAR_POD);
         pinpoint.setEncoderDirections(
-                GoBildaPinpointDriver.EncoderDirection.FORWARD,
+                GoBildaPinpointDriver.EncoderDirection.REVERSED,
                 GoBildaPinpointDriver.EncoderDirection.FORWARD
         );
         pinpoint.resetPosAndIMU();

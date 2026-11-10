@@ -13,8 +13,8 @@ import com.qualcomm.robotcore.hardware.DcMotor;
  * the robot straight. Tune drive kP/kD/kS first, then tune the heading values
  * in {@link headingPID}.</p>
  */
-@TeleOp(name = "tune motoare")
-@Config
+//@TeleOp(name = "tune motoare")
+//@Config
 public class tune_motoare extends OpMode {
     private DcMotor stanga;
     private DcMotor dreapta;

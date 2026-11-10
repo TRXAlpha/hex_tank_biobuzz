@@ -24,13 +24,12 @@ public class  arcadeTankDrive extends OpMode {
 
         pinpoint = hardwareMap.get(GoBildaPinpointDriver.class, "pinpoint");
         pinpoint.resetPosAndIMU();
-        double podOffsetX_mm = 50;
-        double podOffsetY_mm = 0;
-
+        double podOffsetX_mm = 95;
+        double podOffsetY_mm = 45;
         pinpoint.setOffsets(podOffsetX_mm, podOffsetY_mm, DistanceUnit.MM);
         pinpoint.setEncoderResolution(GoBildaPinpointDriver.GoBildaOdometryPods.goBILDA_4_BAR_POD);
         pinpoint.setEncoderDirections(
-                GoBildaPinpointDriver.EncoderDirection.FORWARD,
+                GoBildaPinpointDriver.EncoderDirection.REVERSED,
                 GoBildaPinpointDriver.EncoderDirection.FORWARD
         );
     }

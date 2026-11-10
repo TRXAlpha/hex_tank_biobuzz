@@ -1,6 +1,8 @@
 package org.firstinspires.ftc.teamcode.tuning;
 
+import com.acmerobotics.dashboard.FtcDashboard;
 import com.acmerobotics.dashboard.config.Config;
+import com.acmerobotics.dashboard.telemetry.MultipleTelemetry;
 import com.qualcomm.hardware.gobilda.GoBildaPinpointDriver;
 import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
@@ -24,10 +26,10 @@ public class fataspatetuning extends OpMode {
     public static double kPturn = 0.02;
     public static double maxTurn = 0.3;
 
-    public static double kCross = 1.5;
+    public static double kCross = 10;
 
     public static double posTolerance = 1.5;
-    public static double settleTime = 0.25;
+    public static double settleTime = 1;
     public static double legTimeout = 6.0;
 
     private DcMotor stanga, dreapta;
@@ -42,6 +44,9 @@ public class fataspatetuning extends OpMode {
 
     @Override
     public void init() {
+        // Sends telemetry to both the Driver Station and FTC Dashboard
+        telemetry = new MultipleTelemetry(telemetry, FtcDashboard.getInstance().getTelemetry());
+
         stanga = hardwareMap.get(DcMotor.class, "stanga");
         dreapta = hardwareMap.get(DcMotor.class, "dreapta");
         pinpoint = hardwareMap.get(GoBildaPinpointDriver.class, "pinpoint");
@@ -51,13 +56,15 @@ public class fataspatetuning extends OpMode {
         stanga.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         dreapta.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
 
-        pinpoint.setOffsets(-140, 60, DistanceUnit.MM);
+
+        double podOffsetX_mm = 95;
+        double podOffsetY_mm = 45;
+        pinpoint.setOffsets(podOffsetX_mm, podOffsetY_mm, DistanceUnit.MM);
         pinpoint.setEncoderResolution(GoBildaPinpointDriver.GoBildaOdometryPods.goBILDA_4_BAR_POD);
         pinpoint.setEncoderDirections(
-                GoBildaPinpointDriver.EncoderDirection.FORWARD,
+                GoBildaPinpointDriver.EncoderDirection.REVERSED,
                 GoBildaPinpointDriver.EncoderDirection.FORWARD
         );
-
         pinpoint.resetPosAndIMU();
         setPower(0, 0);
     }
@@ -82,7 +89,9 @@ public class fataspatetuning extends OpMode {
         if (finished) {
             setPower(0, 0);
             telemetry.addLine("Done");
-            telemetry.addData("Residual", "%.2f cm, %.2f cm, %.2f deg", x, y, heading);
+            telemetry.addData("x", x);
+            telemetry.addData("yDrift", y);
+            telemetry.addData("heading", heading);
             telemetry.update();
             return;
         }
@@ -105,10 +114,15 @@ public class fataspatetuning extends OpMode {
         double norm = Math.max(1.0, Math.max(Math.abs(left), Math.abs(right)));
         setPower(left / norm, right / norm);
 
-        telemetry.addData("Leg", "%d / %d", leg + 1, cycles * 2);
-        telemetry.addData("X / target", "%.1f / %.1f cm", x, targetX);
-        telemetry.addData("Y drift", "%.2f cm", y);
-        telemetry.addData("Heading err", "%.1f deg", headingError);
+        // Raw numbers so Dashboard can graph them
+        telemetry.addData("leg", leg + 1);
+        telemetry.addData("target", targetX);
+        telemetry.addData("x", x);
+        telemetry.addData("error", error);
+        telemetry.addData("yDrift", y);
+        telemetry.addData("headingError", headingError);
+        telemetry.addData("drive", drive);
+        telemetry.addData("turn", turn);
         telemetry.update();
 
         boolean settled = Math.abs(error) <= posTolerance && settleTimer.seconds() >= settleTime;
