@@ -38,8 +38,8 @@ import org.firstinspires.ftc.robotcore.external.navigation.UnnormalizedAngleUnit
  *     (no stale value when robot moves) -> center = tag - offset along the row. Works with 1 tag.
  * Center range corrected for each tag's depth offset along the row (uses u).
  */
-@Config
-@TeleOp(name = "Limelight Cluster Pan", group = "cristi")
+//@Config
+//@TeleOp(name = "Limelight Cluster Pan", group = "turela")
 public class LimelightClusterPan extends OpMode {
 
     // ================= CALIBRATION =================

@@ -14,7 +14,7 @@ public class teleopSagDriving extends OpMode {
     public static double STALL_TIME = 0.3; // seconds without movement = stalled
     public static double HOLD_TIME = 1.0;  // seconds motors stop
 
-    private DcMotor stanga, dreapta;
+    private DcMotor stanga, dreapta, intake;
     private VoltageSensor battery;
     private int lastL, lastR;
     private double restVolts = 12.0;
@@ -27,6 +27,9 @@ public class teleopSagDriving extends OpMode {
         dreapta = hardwareMap.get(DcMotor.class, "dreapta");
         stanga.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         dreapta.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+
+        intake = hardwareMap.dcMotor.get("intake");
+
         battery = hardwareMap.voltageSensor.iterator().next();
         lastL = stanga.getCurrentPosition();
         lastR = dreapta.getCurrentPosition();
@@ -34,6 +37,10 @@ public class teleopSagDriving extends OpMode {
 
     @Override
     public void loop() {
+
+        if(gamepad1.cross) intake.setPower(1);
+            else intake.setPower(0);
+
         double now = getRuntime();
 
         double forward = gamepad1.right_stick_x;

@@ -1,19 +1,9 @@
-package org.firstinspires.ftc.teamcode.tuning;
+package org.firstinspires.ftc.teamcode.tuning.sasiu;
 
-import com.acmerobotics.dashboard.config.Config;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
-import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 import com.qualcomm.robotcore.hardware.DcMotor;
 
-/**
- * Straight-line drive calibration.
- *
- * <p>This isolates the longitudinal controller: it drives distanceCm along
- * the heading recorded at START and uses the heading controller only to keep
- * the robot straight. Tune drive kP/kD/kS first, then tune the heading values
- * in {@link headingPID}.</p>
- */
-//@TeleOp(name = "tune motoare")
+//@TeleOp(name = "tune motoare", group = "tuning")
 //@Config
 public class tune_motoare extends OpMode {
     private DcMotor stanga;

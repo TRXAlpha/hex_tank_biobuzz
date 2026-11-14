@@ -22,32 +22,8 @@ import org.firstinspires.ftc.robotcore.external.navigation.Pose2D;
 import org.firstinspires.ftc.robotcore.external.navigation.Position;
 import org.firstinspires.ftc.robotcore.external.navigation.UnnormalizedAngleUnit;
 
-/**
- * MOTOR-PAN cluster tracker (Limelight 3A). Same vision/cluster math as LimelightClusterPan,
- * but the turret is panned by one goBILDA 5203 (19.2:1) motor "turret", 3:1 to the turret,
- * closed loop on its encoder. Flywheel (turelaD / turelaS) not used here.
- *
- * 3D: bearing + horizontal distance come from each tag's 3D position (camera space),
- * and the row direction also uses each tag's 3D YAW (orientation). So even ONE tag gives
- * the full row direction (no "ASSUMED" face-on guess). With 2+ tags the angle-spacing
- * estimate and the 3D yaw are blended (YAW_BLEND); yaw also picks the mirror solution.
- *
- * YAW calibration (once):
- *   1) robot face-on to the row, read "Yaw raw" -> put it in YAW_OFFSET_DEG
- *   2) stand ~40 deg to one side, see 2+ tags: "Row dir yaw" must match "Row dir multi".
- *      If they are mirrored, flip YAW_SIGN.
- *
- * Turret angle convention: 0 = turret facing robot forward at init, + = counter-clockwise
- * (same as robot heading). Turret MUST be centered when you press INIT (or press B to re-zero).
- *
- * Controller (power, per loop):
- *   u = kP*err + kD*(targetRate - vel) + FF_SCALE*targetRate/MAX_TURRET_DPS + kS*sign(err)
- *
- * Tuning order: 1) signs  2) ticks per deg  3) kP  4) kD  5) kS  6) feedforward  7) vision lag
- * Manual jog: dpad left/right. Re-zero encoder: B (turret must be centered).
- */
-@Config
-@TeleOp(name = "Limelight Cluster Pan Motor", group = "cristi")
+//@Config
+//@TeleOp(name = "cluster tracker v1", group = "turela")
 public class LimelightClusterPanMotor extends OpMode {
 
     // ================= TURRET MOTOR CALIBRATION =================

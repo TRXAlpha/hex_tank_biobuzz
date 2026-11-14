@@ -6,8 +6,8 @@ import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.util.ElapsedTime;
 
-@Config
-@TeleOp(name = "Turela Teleop", group = "Test")
+//@Config
+//@TeleOp(name = "Turela Teleop", group = "turela")
 public class turelaRotatie extends LinearOpMode {
 
     static final String MOTOR_NAME = "turret";

@@ -37,8 +37,8 @@ import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
  *   5. Pune valoarea noua in ENCODER_TICKS_PER_MM si repeta pana distanta reala ~ 1000 mm.
  *   Daca robotul se intoarce in alt loc decat startul, ai o eroare de offset/drift.
  */
-@Autonomous(name = "auto tras parcare SC")
-@Config
+//@Autonomous(name = "auto tras parcare SC")
+//@Config
 public class AutoTrasParcareSC extends LinearOpMode {
 
     // ======================= PARAMETRI DE REGLAT =======================
