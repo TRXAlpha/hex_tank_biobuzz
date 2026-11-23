@@ -23,7 +23,7 @@ public class teleopDebug extends OpMode {
         stanga.setDirection(DcMotor.Direction.REVERSE);
         dreapta.setDirection(DcMotor.Direction.FORWARD);
 
-        pinpoint = hardwareMap.get(GoBildaPinpointDriver.class, "pinpoint");
+       pinpoint = hardwareMap.get(GoBildaPinpointDriver.class, "pinpoint");
         pinpoint.resetPosAndIMU();
         double podOffsetX_mm = -44.3;
         double podOffsetY_mm = -6.6;
@@ -40,7 +40,7 @@ public class teleopDebug extends OpMode {
     }
     @Override
     public void loop(){
-        intake.setPower(1);
+//        intake.setPower(1);
         pinpoint.update();
         // Read joysticks (negated because pushing forward is negative by default)
         double putereStanga  = -gamepad1.left_stick_y;

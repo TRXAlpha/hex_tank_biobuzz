@@ -3,24 +3,22 @@ package org.firstinspires.ftc.teamcode.auto;
 import com.acmerobotics.dashboard.FtcDashboard;
 import com.acmerobotics.dashboard.config.Config;
 import com.acmerobotics.dashboard.telemetry.MultipleTelemetry;
-import com.qualcomm.hardware.gobilda.GoBildaPinpointDriver;
 import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.hardware.DcMotor;
+import com.qualcomm.robotcore.hardware.DcMotorSimple;
 import com.qualcomm.robotcore.util.ElapsedTime;
 
-import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
-import org.firstinspires.ftc.robotcore.external.navigation.UnnormalizedAngleUnit;
+import org.firstinspires.ftc.teamcode.Pozitie;
 import org.firstinspires.ftc.teamcode.auto.helpere.AutoHelper;
 
 @Config
 @Autonomous(name = "auto tras parcare")
-
 public class AutoTrasParcare extends OpMode {
+    public static double SHOOT_MS = 5000;   // gated feed window after flywheel at speed + turret on target
+
     public static double heading_parcare = -80;
     public static double heading_go_line = 0;
-
-    public static double timer_start = 2;
     public static double x_parcare = 1190;
     public static double x_go_line = 1000;
     public static double y_parcare = -1980;
@@ -34,46 +32,58 @@ public class AutoTrasParcare extends OpMode {
     public static double heading_go_line_slow = 0;
     public static double y_go_line_slow = 0;
     public static double x_go_line_slow = 1200;
+    public static double STAGIU_POWER = 1;
+
     private AutoHelper drive;
-    private DcMotor intake;
+    private DcMotor intake, stagiu;
 
     private State state = State.SHOOT;
-    private ElapsedTime runtime = new ElapsedTime();
-    private ElapsedTime statetimer = new ElapsedTime();
+    private final ElapsedTime runtime = new ElapsedTime();
+    private final ElapsedTime statetimer = new ElapsedTime();
 
-    private enum State {SHOOT, GO_LINE, GO_LINE_SLOW, GO_PARK, PARKED, BACK_FROM_LINE, ROTATE_LINE, DONE}
-
-
-    GoBildaPinpointDriver pinpoint;
+    private enum State {SHOOT, JIGGLE_BACK, JIGGLE_FORWARD, GO_LINE, GO_LINE_SLOW, GO_PARK, PARKED, BACK_FROM_LINE, ROTATE_LINE, DONE}
 
     @Override
     public void init() {
-        pinpoint = hardwareMap.get(GoBildaPinpointDriver.class, "pinpoint");
-        intake = hardwareMap.get(DcMotor.class, "intake");
-
-
+    stagiu = hardwareMap.dcMotor.get("stagiu");
+        stagiu.setDirection(DcMotorSimple.Direction.REVERSE);
+        stagiu.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE); intake = hardwareMap.get(DcMotor.class, "intake");
         telemetry = new MultipleTelemetry(telemetry, FtcDashboard.getInstance().getTelemetry());
         drive = AutoHelper.fromHardwareMap(hardwareMap, "stanga", "dreapta", "pinpoint", -44.3, -6.6);
         drive.resetPose();
+        Pozitie.clear();                   // no old pose leaks into teleop
         runtime.reset();
     }
 
+    @Override
+    public void init_loop() {
+        drive.turretInitLoop(telemetry);   // turret -> center
+        telemetry.update();
+    }
+
+    @Override
     public void start() {
         state = State.SHOOT;
         drive.resetMove();
+        drive.startTurret();               // seed hive along current turret direction
         runtime.reset();
         statetimer.reset();
-
     }
 
     @Override
     public void loop() {
-        pinpoint.update();
-        drive.refreshPose();
+        drive.update(telemetry);           // pinpoint once + turret tracking, every loop
+        Pozitie.setMmDeg(drive.getX(), drive.getY(), drive.getHeading());   // hand pose to teleop
+        if (state != State.SHOOT && state != State.DONE) {
+            intake.setPower(1);   // moving + parked: always on
+        } else if (state == State.DONE) {
+            intake.setPower(0);
+        }
         switch (state) {
             case SHOOT:
-                if (statetimer.seconds() >= timer_start) {
+                if (drive.shootFor(SHOOT_MS, telemetry)) {
                     drive.resetMove();
+                    statetimer.reset();
                     state = State.GO_LINE;
                 }
                 break;
@@ -83,21 +93,39 @@ public class AutoTrasParcare extends OpMode {
                     drive.resetMove();
                     drive.stop();
                     statetimer.reset();
-                    intake.setPower(1);
                     state = State.GO_LINE_SLOW;
                 }
                 break;
 
             case GO_LINE_SLOW:
+                if (drive.lap(heading_go_line_slow, x_go_line_slow, y_go_line_slow, telemetry)) {
+                    drive.resetMove();
+                    drive.stop();
+                    statetimer.reset();
+                    state = State.BACK_FROM_LINE;
+                }
+                break;
+
+            case BACK_FROM_LINE:
+                if (drive.lap(heading_back_from_line, x_back_from_line, y_back_from_line, telemetry)) {
+                    drive.resetMove();
+                    drive.stop();
+                    statetimer.reset();
+
+                    state = State.JIGGLE_FORWARD;
+                }
+                break;
+
+            case JIGGLE_FORWARD:
                 if(drive.lap(heading_go_line_slow, x_go_line_slow, y_go_line_slow, telemetry)){
                     drive.resetMove();
                     drive.stop();
                     statetimer.reset();
-                    intake.setPower(0);
-                    state = State.BACK_FROM_LINE;
+                    state = State.JIGGLE_BACK;
                 }
                 break;
-            case BACK_FROM_LINE:
+
+            case JIGGLE_BACK:
                 if(drive.lap(heading_back_from_line, x_back_from_line, y_back_from_line, telemetry)){
                     drive.resetMove();
                     drive.stop();
@@ -107,7 +135,7 @@ public class AutoTrasParcare extends OpMode {
                 break;
 
             case ROTATE_LINE:
-                if(drive.lap(heading_rotate_line, x_rotate_line, y_rotate_line, telemetry)){
+                if (drive.lap(heading_rotate_line, x_rotate_line, y_rotate_line, telemetry)) {
                     drive.resetMove();
                     drive.stop();
                     statetimer.reset();
@@ -139,17 +167,15 @@ public class AutoTrasParcare extends OpMode {
         telemetry.addData("state", state);
         telemetry.addData("runtime", runtime.seconds());
         telemetry.addData("stateTime", statetimer.seconds());
-        telemetry.addData("doneXY", drive.getStatusXY());
-        telemetry.addData("x", pinpoint.getPosX(DistanceUnit.CM));
-        telemetry.addData("y", pinpoint.getPosY(DistanceUnit.CM));
-        telemetry.addData("h", pinpoint.getHeading(UnnormalizedAngleUnit.DEGREES));
-        telemetry.addData("doneHeading", drive.getStatusHeading());
+        telemetry.addData("doneXY / doneHeading", "%b / %b", drive.getStatusXY(), drive.getStatusHeading());
+        telemetry.addData("x / y / h", "%.0f / %.0f / %.1f", drive.getX(), drive.getY(), drive.getHeading());
         telemetry.update();
     }
 
     @Override
     public void stop() {
-        drive.stop();
+        drive.stopAll();
         intake.setPower(0);
+        Pozitie.saveFile();                // backup if the robot app restarts
     }
 }

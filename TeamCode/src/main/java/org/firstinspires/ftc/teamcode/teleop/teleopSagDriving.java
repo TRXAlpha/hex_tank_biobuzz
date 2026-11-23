@@ -6,8 +6,8 @@ import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.VoltageSensor;
 
-@Config
-@TeleOp(name="teleop driving sag", group = "tank")
+//@Config
+//@TeleOp(name="teleop driving sag", group = "tank")
 public class teleopSagDriving extends OpMode {
 
     public static double SAG_DROP = 1.5;   // volts below rest voltage = sag

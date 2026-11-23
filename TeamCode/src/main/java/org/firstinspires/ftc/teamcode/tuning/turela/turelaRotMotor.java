@@ -12,8 +12,8 @@ import com.qualcomm.robotcore.util.ElapsedTime;
  * Turret PID directly on pot voltage. Set TARGET_V from FTC Dashboard.
  * Reference: 0.663 front | 1.030 center | 1.500 back | ends 0.460 / 1.790
  */
-@Config
-@TeleOp(name = "Turela Voltage PID", group = "turela")
+//@Config
+//@TeleOp(name = "Turela Voltage PID", group = "turela")
 public class turelaRotMotor extends OpMode {
 
     public static double FILTER_ALPHA = 0.4;

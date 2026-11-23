@@ -18,8 +18,8 @@ import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
  * Turret angle (robot frame, CCW +): 0 = robot front, +-90 = lateral (center), +-180 = back.
  * Feedback: pot only. Feedforward: cancels robot rotation rate.
  */
-@Config
-@TeleOp(name = "Turela Field Lock", group = "turela")
+//@Config
+//@TeleOp(name = "Turela Field Lock", group = "turela")
 public class turelaFieldLock extends OpMode {
 
     // ---------- target ----------

@@ -31,8 +31,8 @@ import org.firstinspires.ftc.robotcore.external.navigation.UnnormalizedAngleUnit
  *
  * Pan angle: robot frame, CCW +, 0 = robot front.
  */
-@Config
-@TeleOp(name = "turela n tag", group = "turela")
+//@Config
+//@TeleOp(name = "turela n tag", group = "turela")
 public class turelaUnTag extends OpMode {
 
     // ================= TAG =================
