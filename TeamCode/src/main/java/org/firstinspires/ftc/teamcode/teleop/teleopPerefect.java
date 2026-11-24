@@ -130,7 +130,7 @@ public class teleopPerefect extends OpMode {
     public static int SHOOT_MIN_TAGS = 2;           // tags in view needed for auto-fire (plus a locked center)
     public static boolean REQUIRE_AIM = true;       // auto-fire only when turret is on target
     public static double AIM_TOL_DEG = 3.0;         // turret error allowed for auto-fire
-    public static boolean SPEED_FROM_DISTANCE = true; // false = fixed FIXED_SPEED
+    public static boolean SPEED_FROM_DISTANCE = false; // OFF until "dist" matches a tape measure. false = FIXED_SPEED
     public static double FIXED_SPEED = 1300;          // used when SPEED_FROM_DISTANCE = false or no center yet
     public static boolean SPIN_UP_AT_START = true;
     public static boolean INTAKE_FOLLOWS_FEED = true; // intake runs with stagiu; held off while flywheel recovers
@@ -140,8 +140,8 @@ public class teleopPerefect extends OpMode {
 
     // ================= DRIVE =================
     // Max change of drive power per second. Stops full-reverse current spikes (battery sag).
-    // 4 = 0 -> full in 0.25 s. Higher = snappier, more sag. 0 = off.
-    public static double DRIVE_SLEW = 4;
+    // 0 = off (no lag). Try 8 (0 -> full in 0.125 s) only if the battery still sags hard.
+    public static double DRIVE_SLEW = 0;
     // ================= HARDWARE =================
     private DcMotor stanga, dreapta, turret, intake, stagiu;
     private AnalogInput pot;
@@ -392,10 +392,10 @@ public class teleopPerefect extends OpMode {
         } else if (!centerLocked) {
             fire = false;
             fireReason = "not locked";
-        } else if (shotDistCm < Flywheel.MIN_SHOT_CM) {
+        } else if (SPEED_FROM_DISTANCE && shotDistCm < Flywheel.MIN_SHOT_CM) {
             fire = false;
             fireReason = String.format("TOO CLOSE (%.0f cm) - back up", shotDistCm);
-        } else if (shotDistCm > Flywheel.MAX_SHOT_CM) {
+        } else if (SPEED_FROM_DISTANCE && shotDistCm > Flywheel.MAX_SHOT_CM) {
             fire = false;
             fireReason = String.format("TOO FAR (%.0f cm) - move closer", shotDistCm);
         } else if (tagsNow < SHOOT_MIN_TAGS) {

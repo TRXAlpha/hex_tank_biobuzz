@@ -62,6 +62,7 @@ public class Flywheel {
     private final DcMotorEx d, s;
     private final VoltageSensor battery;
     private double target = 0, vel = 0, volts = NOMINAL_V, power = 0;
+    private long lastVoltNs = 0;                 // battery is read every 100 ms, not every loop (slow read)
     private boolean on = false, atSpeed = false;
 
     public Flywheel(HardwareMap hw) {
@@ -113,8 +114,11 @@ public class Flywheel {
 
     private void read() {
         vel = (d.getVelocity() + s.getVelocity()) / 2.0;
+        long now = System.nanoTime();
+        if (now - lastVoltNs < 100_000_000L) return;
+        lastVoltNs = now;
         double v = battery.getVoltage();
-        if (v > 5) volts += 0.3 * (v - volts);   // smooth the noise, ignore bad reads
+        if (v > 5) volts += 0.5 * (v - volts);   // smooth the noise, ignore bad reads
     }
 
     public void stop() {
