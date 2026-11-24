@@ -17,6 +17,7 @@ import com.qualcomm.robotcore.util.ElapsedTime;
 
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
+import org.firstinspires.ftc.robotcore.external.navigation.Pose2D;
 import org.firstinspires.ftc.robotcore.external.navigation.Position;
 import org.firstinspires.ftc.robotcore.external.navigation.UnnormalizedAngleUnit;
 import org.firstinspires.ftc.teamcode.Flywheel;
@@ -37,10 +38,10 @@ import org.firstinspires.ftc.teamcode.Flywheel;
  *   1. Keep only our alliance's tags. Use the CELL with the most tags in view.
  *   2. Each tag -> point on the floor, relative to the camera (from tx, ty and range).
  *   3. CELL center = average of (tag point - tag offset along the row). Works with 1 to 4 tags.
- *   4. Save the direction to the center as a FIELD angle (IMU heading + turret angle + camera angle).
- * Between frames, and when the tags are lost, the turret holds that field angle with the IMU heading.
- * The distance turret -> CELL center picks the flywheel speed from the Flywheel table.
- * No odometry position is used: only the IMU heading, which does not drift much.
+ *   4. Save the center as a FIELD point (x, y) with the Pinpoint odometry pose from when the picture was taken.
+ * Between frames, and when the tags are lost, the turret aims at that point using the odometry pose.
+ * Every new frame re-measures the point, so odometry drift is corrected while tags are in view.
+ * The distance turret -> CELL center (from odometry) picks the flywheel speed from the Flywheel table.
  *
  * BEFORE THE MEET: Limelight pipeline tag size = 82.55 mm (3.25 in, game manual 9.9).
  * Then check: robot 130 cm from the tags (tape) -> screen "dist" must read ~130.
@@ -56,7 +57,8 @@ public class TeleopAutoAim extends OpMode {
     public static double DIST_SCALE = 1.0;       // tape / screen dist. Only if the tag size can't be fixed.
     public static double TAG_OUTER_MM = 165.1, TAG_INNER_MM = 69.85;   // tag centers from cluster center
     public static double LOST_MS = 300;          // tags count as "seen" for this long after the last frame
-    public static double DIST_ALPHA = 0.3;       // distance smoothing (1 = none)
+    public static double CENTER_ALPHA = 0.5;     // CELL point smoothing (1 = none)
+    public static double JUMP_MM = 400;          // new point this far away = replace, do not smooth
 
     // ---------- turret (pot), same values as teleopPerefect ----------
     public static double V_FRONT = 0.663, V_CENTER = 1.030, V_BACK = 1.500;
@@ -74,13 +76,13 @@ public class TeleopAutoAim extends OpMode {
     private DcMotor stanga, dreapta, turret, intake, stagiu;
     private AnalogInput pot;
     private Limelight3A ll;
-    private GoBildaPinpointDriver imu;
+    private GoBildaPinpointDriver odo;
     private Flywheel fw;
     private boolean red = false, flyFile, pSquare;
 
     // aim
     private boolean haveAim = false;
-    private double aimField = 0;          // rad, field direction turret -> CELL center
+    private double fx, fy;                // mm, CELL center on the field (odometry frame)
     private double dist = 0;              // cm, turret pivot -> CELL center
     private int tags = 0;
     private double lastSeen = -1e9, lastStale = 1e9;
@@ -89,9 +91,10 @@ public class TeleopAutoAim extends OpMode {
     private double v, deg, rawDeg, lastDeg, target, minDeg, maxDeg;
     private boolean potOk = true, saturated = false;
 
-    // short history (time, heading, turret) so a camera frame uses the pose from when it was taken
+    // short history (time, pose, turret) so a camera frame uses the pose from when it was taken
     private static final int H = 64;
-    private final double[] hT = new double[H], hHead = new double[H], hPan = new double[H];
+    private final double[] hT = new double[H], hX = new double[H], hY = new double[H],
+            hHead = new double[H], hPan = new double[H];
     private int hI = 0;
 
     private final ElapsedTime clock = new ElapsedTime();
@@ -122,12 +125,12 @@ public class TeleopAutoAim extends OpMode {
         ll.pipelineSwitch(PIPELINE);
         ll.start();
 
-        imu = hardwareMap.get(GoBildaPinpointDriver.class, "pinpoint");
-        imu.setOffsets(-44.3, -6.6, DistanceUnit.MM);
-        imu.setEncoderResolution(GoBildaPinpointDriver.GoBildaOdometryPods.goBILDA_4_BAR_POD);
-        imu.setEncoderDirections(GoBildaPinpointDriver.EncoderDirection.REVERSED,
+        odo = hardwareMap.get(GoBildaPinpointDriver.class, "pinpoint");
+        odo.setOffsets(-44.3, -6.6, DistanceUnit.MM);
+        odo.setEncoderResolution(GoBildaPinpointDriver.GoBildaOdometryPods.goBILDA_4_BAR_POD);
+        odo.setEncoderDirections(GoBildaPinpointDriver.EncoderDirection.REVERSED,
                 GoBildaPinpointDriver.EncoderDirection.FORWARD);
-        imu.resetPosAndIMU();                // keep the robot still in INIT
+        odo.resetPosAndIMU();                // pose = 0,0,0 at INIT (keep the robot still)
 
         flyFile = Flywheel.load();
         fw = new Flywheel(hardwareMap);      // nothing moves in INIT
@@ -170,11 +173,13 @@ public class TeleopAutoAim extends OpMode {
         dreapta.setPower((fwd - turn) / m);
 
         // ---------- sensors ----------
-        imu.update();
-        double head = imu.getPosition().getHeading(AngleUnit.RADIANS);
-        double omega = imu.getHeadingVelocity(UnnormalizedAngleUnit.RADIANS);
+        odo.update();
+        Pose2D pose = odo.getPosition();
+        double x = pose.getX(DistanceUnit.MM), y = pose.getY(DistanceUnit.MM);
+        double head = pose.getHeading(AngleUnit.RADIANS);
+        double omega = odo.getHeadingVelocity(UnnormalizedAngleUnit.RADIANS);
         readTurret();
-        hT[hI] = now; hHead[hI] = head; hPan[hI] = rawDeg;
+        hT[hI] = now; hX[hI] = x; hY[hI] = y; hHead[hI] = head; hPan[hI] = rawDeg;
         hI = (hI + 1) % H;
 
         // ---------- vision ----------
@@ -189,10 +194,11 @@ public class TeleopAutoAim extends OpMode {
         }
         if (now - lastSeen > LOST_MS) tags = 0;
 
-        // ---------- turret: hold the field angle to the CELL ----------
+        // ---------- turret: aim at the CELL point with odometry ----------
         double tv = 0;
         if (haveAim) {
-            double want = AngleUnit.normalizeDegrees(Math.toDegrees(aimField - head));
+            dist = Math.hypot(fx - x, fy - y) / 10.0;
+            double want = AngleUnit.normalizeDegrees(Math.toDegrees(Math.atan2(fy - y, fx - x) - head));
             target = reachable(want);
             saturated = Math.abs(AngleUnit.normalizeDegrees(want - target)) > 0.5;
             if (!saturated) tv = -Math.toDegrees(omega);   // turn against the robot's rotation
@@ -238,7 +244,7 @@ public class TeleopAutoAim extends OpMode {
 
     // ===================== vision =====================
 
-    /** One camera frame -> CELL center -> aimField + dist. tFrame = when the picture was taken. */
+    /** One camera frame -> CELL center -> field point (fx, fy). tFrame = when the picture was taken. */
     private void see(LLResult r, double tFrame) {
         int j = (hI - 1 + H) % H;                                   // newest history entry
         for (int s = 0; s < H - 1 && hT[j] > tFrame; s++) j = (j - 1 + H) % H;
@@ -287,9 +293,11 @@ public class TeleopAutoAim extends OpMode {
         cx = cx / n[c] + CAM_FWD_MM;                                // from the turret pivot
         cy = cy / n[c];
 
-        aimField = wrap(hHead[j] + Math.toRadians(hPan[j]) + Math.atan2(cy, cx));
-        double d = Math.hypot(cx, cy) / 10.0;
-        dist = haveAim ? dist + DIST_ALPHA * (d - dist) : d;
+        double a = hHead[j] + Math.toRadians(hPan[j]);              // turret direction on the field
+        double nx = hX[j] + cx * Math.cos(a) - cy * Math.sin(a);
+        double ny = hY[j] + cx * Math.sin(a) + cy * Math.cos(a);
+        if (!haveAim || Math.hypot(nx - fx, ny - fy) > JUMP_MM) { fx = nx; fy = ny; }
+        else { fx += CENTER_ALPHA * (nx - fx); fy += CENTER_ALPHA * (ny - fy); }
         haveAim = true;
         tags = n[c];
         lastSeen = clock.milliseconds();
@@ -344,8 +352,6 @@ public class TeleopAutoAim extends OpMode {
         double b = 270.0 * volts + 445.5, c = 120285.0 - 36450.0 * volts;
         return (b - Math.sqrt(b * b - 4.0 * volts * c)) / (2.0 * volts);
     }
-
-    private static double wrap(double a) { return Math.atan2(Math.sin(a), Math.cos(a)); }
 
     @Override
     public void stop() {
