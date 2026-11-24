@@ -36,8 +36,20 @@ public class Flywheel {
     public static double KV = 0.00043; // power per tick/s (at 12 V)
     public static double KP = 0.003;   // extra power per tick/s of error
 
-    // distance (cm) -> speed (ticks/s), sorted by distance
+    // distance (cm) -> speed (ticks/s), sorted by distance.
+    // Built-in fallback = values measured on the practice field (Nov 2026).
+    // The tuner's saved file replaces these when it exists.
     public static final List<double[]> TABLE = new ArrayList<>();
+    static {
+        double[][] measured = {{90, 1375}, {100, 1375}, {110, 1350}, {130, 1300}, {160, 1270}, {170, 1285}};
+        for (double[] p : measured) TABLE.add(p);
+    }
+
+    // auto-fire only inside this range (cm). Under ~110 the shot is too sensitive to distance.
+    public static double MIN_SHOT_CM = 110;
+    public static double MAX_SHOT_CM = 175;
+
+    public static boolean inRange(double cm) { return cm >= MIN_SHOT_CM && cm <= MAX_SHOT_CM; }
 
     // ---- feed gating ----
     public static double READY_BAND = 0.01;  // "at speed" = within +/-1 %

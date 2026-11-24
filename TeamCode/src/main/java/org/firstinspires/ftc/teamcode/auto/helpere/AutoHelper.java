@@ -17,6 +17,7 @@ import com.qualcomm.robotcore.util.ElapsedTime;
 import com.qualcomm.robotcore.util.Range;
 
 import org.firstinspires.ftc.robotcore.external.Telemetry;
+import org.firstinspires.ftc.teamcode.Flywheel;
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.Pose2D;
@@ -134,11 +135,10 @@ public class AutoHelper {
     public static double FF_JUMP_DEG = 15;
     public static double FILTER_ALPHA = 0.4;
     public static int FIRST_TAG = 34;
-    public static double FLY_KD = 0;
-    public static double FLY_KF = 15.6;   // 32767 / 2100 (max tps from FlywheelTuner calibration)
-    public static double FLY_KI = 0.2;
-    public static double FLY_KP = 20;
-    public static double FLY_TARGET = 1200;
+    // Flywheel speed comes from Flywheel's distance table (tuner) using the hive distance.
+    // FLY_TARGET is only used if there is no hive center yet.
+    public static boolean FLY_FROM_DISTANCE = true;
+    public static double FLY_TARGET = 1300;
     public static double HEADING_DEADBAND = 0.4;
     public static double HEADING_KD = 0.002;
     public static double HEADING_KP = 0.55;
@@ -166,13 +166,10 @@ public class AutoHelper {
     public static double MOUNT_X_MM = 0;
     public static double MOUNT_Y_MM = 0;
     public static double NOMINAL_VOLTAGE = 12.5;
-    public static double OVER_BAND = 0.02;    // above 102% of target = too fast -> no feed
     public static double OFF_INNER_MM = 69.85;
     public static double OFF_OUTER_MM = 165.1;
     public static double PAN_LAG_MS = 0;
     public static int PIPELINE = 2;
-    public static double READY_BAND = 0.01;
-    public static double SHOT_DIP = 0.025;
     public static double SIGN_CONF_SIN = 0.5;
     public static double SLOPE_DECAY = 0.9;
     public static double SPINUP_TIMEOUT_MS = 2500;
@@ -195,7 +192,7 @@ public class AutoHelper {
     public static DcMotor dreapta;
     private final GoBildaPinpointDriver pinpoint;
     private final VoltageSensor voltageSensor;
-    private final DcMotorEx turelaD, turelaS;
+    private final Flywheel fly;
     private final DcMotor stagiu, turret, intake;
     private final AnalogInput pot;
     private final Limelight3A limelight;
@@ -212,7 +209,7 @@ public class AutoHelper {
     private double lineStartX, lineStartY, lineHeading;
 
     // ===================== SHOOTER STATE =====================
-    private double flyTarget = 0, flyVel = 0;
+    private double flyTarget = 0, flyVel = 0, shotDistCm = 0;
     private boolean atSpeed = false, onTarget = false;
     private boolean shooting = false, windowStarted = false;
     private final ElapsedTime shootTimer = new ElapsedTime();
@@ -254,13 +251,8 @@ public class AutoHelper {
         this.voltageSensor = hardwareMap.voltageSensor.iterator().next();
 
         // flywheel
-        turelaD = hardwareMap.get(DcMotorEx.class, "turelaD");
-        turelaS = hardwareMap.get(DcMotorEx.class, "turelaS");
-        turelaS.setDirection(DcMotorSimple.Direction.REVERSE);
-        for (DcMotorEx m : new DcMotorEx[]{turelaD, turelaS}) {
-            m.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
-            m.setVelocityPIDFCoefficients(FLY_KP, FLY_KI, FLY_KD, FLY_KF);
-        }
+        Flywheel.load();                       // tuner values if the file exists, else built-in
+        fly = new Flywheel(hardwareMap);
         intake = hardwareMap.dcMotor.get("intake");
         stagiu = hardwareMap.dcMotor.get("stagiu");
         stagiu.setDirection(DcMotorSimple.Direction.REVERSE);
@@ -466,16 +458,15 @@ public class AutoHelper {
 
     public void setFlywheel(double target) {
         flyTarget = target;
-        turelaD.setVelocity(target);
-        turelaS.setVelocity(target);
+        fly.setTarget(target);
+        fly.setOn(target > 0);
     }
 
     /** ShootSimple gating + turret on target. Returns true when ready to feed. */
     public boolean updateShooter(boolean feed) {
-        flyVel = (turelaD.getVelocity() + turelaS.getVelocity()) / 2.0;
-        double lo = flyTarget * (1 - SHOT_DIP), hi = flyTarget * (1 + OVER_BAND);
-        if (flyTarget <= 0 || flyVel < lo || flyVel > hi) atSpeed = false;           // fired / off / too fast
-        else if (Math.abs(flyVel - flyTarget) <= flyTarget * READY_BAND) atSpeed = true; // within +/-1%: feed
+        fly.update();                          // battery-compensated speed control + at-speed gating
+        flyVel = fly.getVelocity();
+        atSpeed = fly.isAtSpeed();
         onTarget = aiming && !saturated && Math.abs(target - deg) <= AIM_TOL_DEG;
         boolean ready = atSpeed && onTarget;
         double p = (feed && ready) ? 1 : 0;
@@ -494,7 +485,7 @@ public class AutoHelper {
             windowStarted = false;
             shootTimer.reset();
         }
-        setFlywheel(FLY_TARGET);
+        setFlywheel(shotSpeed());
         boolean ready = updateShooter(windowStarted);
 
         if (!windowStarted && (ready || shootTimer.milliseconds() >= SPINUP_TIMEOUT_MS)) {
@@ -502,7 +493,9 @@ public class AutoHelper {
             shootTimer.reset();
         }
 
-        t.addData("fly vel / target", "%.0f / %.0f", flyVel, flyTarget);
+        t.addData("fly vel / target", "%.0f / %.0f  (dist %.0f cm%s)", flyVel, flyTarget, shotDistCm,
+                Flywheel.inRange(shotDistCm) ? "" : " OUT OF RANGE");
+        t.addData("battery", "%.2f V", fly.getVolts());
         t.addData("at speed / on target / window", "%b / %b / %b", atSpeed, onTarget, windowStarted);
         t.addData("shoot ms", "%.0f", shootTimer.milliseconds());
 
@@ -513,12 +506,22 @@ public class AutoHelper {
         return false;
     }
 
+    /** Speed from the distance table (turret pivot -> hive center), else FLY_TARGET. */
+    private double shotSpeed() {
+        if (!FLY_FROM_DISTANCE || !haveCenter || pose == null) return FLY_TARGET;
+        double rx = pose.getX(DistanceUnit.MM), ry = pose.getY(DistanceUnit.MM);
+        double rh = pose.getHeading(AngleUnit.RADIANS);
+        double mx = rx + MOUNT_X_MM * Math.cos(rh) - MOUNT_Y_MM * Math.sin(rh);
+        double my = ry + MOUNT_X_MM * Math.sin(rh) + MOUNT_Y_MM * Math.cos(rh);
+        shotDistCm = Math.hypot(cx - mx, cy - my) / 10.0;
+        return Flywheel.speedForDistance(shotDistCm);
+    }
+
     public void stopShooter() {
         stagiu.setPower(0);
         intake.setPower(0);
         setFlywheel(0);
-        turelaD.setPower(0);
-        turelaS.setPower(0);
+        fly.stop();
         shooting = false;
         windowStarted = false;
         atSpeed = false;

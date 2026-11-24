@@ -24,6 +24,7 @@ import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.Pose2D;
 import org.firstinspires.ftc.robotcore.external.navigation.Position;
 import org.firstinspires.ftc.robotcore.external.navigation.UnnormalizedAngleUnit;
+import org.firstinspires.ftc.teamcode.Flywheel;
 import org.firstinspires.ftc.teamcode.Pozitie;
 
 /**
@@ -57,6 +58,7 @@ import org.firstinspires.ftc.teamcode.Pozitie;
  * CONTROLS (PS5):
  *   Square        flywheel on/off (on at start)
  *   (auto-fire)   at speed AND >= SHOOT_MIN_TAGS tags AND center locked AND turret on target
+ *                 AND distance inside Flywheel.MIN_SHOT_CM .. MAX_SHOT_CM
  *   D-pad up held MANUAL OVERRIDE: fires whenever flywheel is at speed. No tag / aim check.
  *   L1 held       intake in (held off while the flywheel recovers after a shot)
  *   (auto-intake) intake also runs while stagiu feeds (INTAKE_FOLLOWS_FEED)
@@ -128,13 +130,18 @@ public class teleopPerefect extends OpMode {
     public static int SHOOT_MIN_TAGS = 2;           // tags in view needed for auto-fire (plus a locked center)
     public static boolean REQUIRE_AIM = true;       // auto-fire only when turret is on target
     public static double AIM_TOL_DEG = 3.0;         // turret error allowed for auto-fire
-    public static boolean SPEED_FROM_DISTANCE = true; // false = fixed Shooter.VEL_TPS[0]
+    public static boolean SPEED_FROM_DISTANCE = true; // false = fixed FIXED_SPEED
+    public static double FIXED_SPEED = 1300;          // used when SPEED_FROM_DISTANCE = false or no center yet
     public static boolean SPIN_UP_AT_START = true;
     public static boolean INTAKE_FOLLOWS_FEED = true; // intake runs with stagiu; held off while flywheel recovers
     public static double FEED_INTAKE_POWER = 1.0;     // intake power while feeding (same as AutoHelper)
     public static double RECOVER_MAX_MS = 600;        // max intake hold after a shot (if speed never comes back)
     public static boolean CAMERA_STREAM = false;      // AutoHelper: no dashboard camera stream (R704.D)
 
+    // ================= DRIVE =================
+    // Max change of drive power per second. Stops full-reverse current spikes (battery sag).
+    // 4 = 0 -> full in 0.25 s. Higher = snappier, more sag. 0 = off.
+    public static double DRIVE_SLEW = 4;
     // ================= HARDWARE =================
     private DcMotor stanga, dreapta, turret, intake, stagiu;
     private AnalogInput pot;
@@ -142,6 +149,8 @@ public class teleopPerefect extends OpMode {
     private GoBildaPinpointDriver pinpoint;
     private FtcDashboard dashboard;
     private Shooter shooter;
+    private double drvL = 0, drvR = 0;            // drive power after slew limit
+    private boolean flyFile = false;              // flywheel values came from the tuner file
     private boolean pSquare, pShare;
     private boolean red = false;                  // alliance, chosen in INIT
     private int activeCell = -1;                  // 0 = LOW (y < SWITCH_Y), 1 = HIGH
@@ -231,8 +240,9 @@ public class teleopPerefect extends OpMode {
         intake.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         stagiu.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
 
+        flyFile = Flywheel.load();            // KS/KV/KP + distance table from the tuner
         shooter = new Shooter(hardwareMap);   // flywheel stays off in INIT
-        shooter.setTarget(Shooter.VEL_TPS[0]);
+        shooter.setTarget(FIXED_SPEED);
 
         computeLimits();
         v = pot.getVoltage();
@@ -264,6 +274,7 @@ public class teleopPerefect extends OpMode {
         if (gamepad1.dpad_left)  red = true;
         if (gamepad1.dpad_right) red = false;
         telemetry.addData("ALLIANCE (D-pad L=RED R=BLUE)", red ? "RED" : "BLUE");
+        telemetry.addData("Flywheel values", flyFile ? "from tuner file" : "BUILT-IN (run Flywheel Tuner!)");
         telemetry.addData("Pose from auto", poseLoaded ? String.format("x %.0f y %.0f h %.1f",
                 Pozitie.x, Pozitie.y, Math.toDegrees(Pozitie.h)) : "NONE -> origin");
         telemetry.addLine(INIT_TO_CENTER ? "INIT: moving turret to center" : "INIT: turret idle");
@@ -294,7 +305,7 @@ public class teleopPerefect extends OpMode {
         if (dt <= 0) return;
 
         maxPowerNow = MAX_POWER;
-        drive();
+        drive(dt);
 
 
         if (gamepad1.share && !pShare) forgetCluster();
@@ -366,7 +377,7 @@ public class teleopPerefect extends OpMode {
             double mx = rx + MOUNT_X_MM * Math.cos(rh) - MOUNT_Y_MM * Math.sin(rh);
             double my = ry + MOUNT_X_MM * Math.sin(rh) + MOUNT_Y_MM * Math.cos(rh);
             shotDistCm = Math.hypot(cx - mx, cy - my) / 10.0;
-            if (SPEED_FROM_DISTANCE) shooter.setTargetForDistance(shotDistCm);
+            shooter.setTarget(SPEED_FROM_DISTANCE ? Flywheel.speedForDistance(shotDistCm) : FIXED_SPEED);
         }
 
         boolean onTarget = !saturated && Math.abs(target - deg) <= AIM_TOL_DEG;
@@ -381,6 +392,12 @@ public class teleopPerefect extends OpMode {
         } else if (!centerLocked) {
             fire = false;
             fireReason = "not locked";
+        } else if (shotDistCm < Flywheel.MIN_SHOT_CM) {
+            fire = false;
+            fireReason = String.format("TOO CLOSE (%.0f cm) - back up", shotDistCm);
+        } else if (shotDistCm > Flywheel.MAX_SHOT_CM) {
+            fire = false;
+            fireReason = String.format("TOO FAR (%.0f cm) - move closer", shotDistCm);
         } else if (tagsNow < SHOOT_MIN_TAGS) {
             fire = false;
             fireReason = "need " + SHOOT_MIN_TAGS + " tags";
@@ -422,6 +439,7 @@ public class teleopPerefect extends OpMode {
                 shooter.isAtSpeed() ? "AT SPEED" : shooter.isTooFast() ? "TOO FAST"
                                                    : shooter.isRecovering() ? "RECOVERING" : "");
         telemetry.addData("Fire", "%s  shots %d  dist %.0f cm", fireReason, shooter.getShots(), shotDistCm);
+        telemetry.addData("Battery", "%.2f V%s", shooter.getVolts(), shooter.getVolts() < 11.0 ? "  LOW!" : "");
         telemetry.addData("Mode", mode);
         telemetry.addData("Tags / count / max", "%s / %d / %d  (%s)", lastTags, lastCnt, maxCntSeen, lastNote);
         telemetry.addData("Per-tag tx (deg)", lastTx);
@@ -705,12 +723,21 @@ public class teleopPerefect extends OpMode {
 
     // ===================== MISC =====================
 
-    private void drive() {
+    private void drive(double dt) {
         double fwd  =  gamepad1.left_stick_y;   // inverted: stick up drives the other way (chassis front)
         double turn =  -gamepad1.right_stick_x;
         double max = Math.max(1, Math.abs(fwd) + Math.abs(turn));
-        stanga.setPower((fwd + turn) / max);
-        dreapta.setPower((fwd - turn) / max);
+        drvL = slew(drvL, (fwd + turn) / max, dt);
+        drvR = slew(drvR, (fwd - turn) / max, dt);
+        stanga.setPower(drvL);
+        dreapta.setPower(drvR);
+    }
+
+    /** Move toward want by at most DRIVE_SLEW per second. */
+    private static double slew(double now, double want, double dt) {
+        if (DRIVE_SLEW <= 0) return want;
+        double step = DRIVE_SLEW * dt;
+        return now + clamp(want - now, -step, step);
     }
     private void record(double t, double x, double y, double h, double panDeg) {
         hT[hIdx] = t; hX[hIdx] = x; hY[hIdx] = y; hH[hIdx] = h; hPan[hIdx] = panDeg;
@@ -740,108 +767,55 @@ public class teleopPerefect extends OpMode {
     public void stop() {
         if (turret != null) turret.setPower(0);
         if (intake != null) intake.setPower(0);
+        if (stagiu != null) stagiu.setPower(0);
+        if (stanga != null) stanga.setPower(0);
+        if (dreapta != null) dreapta.setPower(0);
         if (shooter != null) shooter.stop();
         if (dashboard != null) dashboard.stopCameraStream();
         if (limelight != null) limelight.stop();
     }
 
-    // ===================== SHOOTER (flywheel turelaD/turelaS + feeder stagiu) =====================
-    // One ball per shot: stagiu runs only at speed, stops on the dip (or above OVER_BAND), waits for recovery.
+    // ===================== SHOOTER (flywheel via Flywheel class + shot counting) =====================
+    // Speed control + battery compensation + at-speed gating live in Flywheel (same as tuner + auto).
+    // Feeder stagiu is written once per loop in loop(), not here.
     static class Shooter {
-        // ---- tuned values (copy from FlywheelTuner / ShootSimple) ----
-        public static double KP = 20, KI = 0.2, KD = 0;
-        public static double KF = 15.6;           // 32767 / 2100 (FlywheelTuner Circle calibration)
-        public static double READY_BAND = 0.01;   // enter "at speed" only within +/-1% of target
-        public static double SHOT_DIP = 0.025;    // below 97.5% = ball fired -> stop feeder
-        public static double OVER_BAND = 0.02;    // above 102% = too fast -> stop feeder
-
-        // ---- distance (cm, floor, flywheel exit -> under up CELL) -> velocity (ticks/s) ----
-        // TODO: fill from FlywheelTuner CSV. Must be sorted by distance.
-        public static double[] DIST_CM = {100};
-        public static double[] VEL_TPS = {1200};
-
-        private final DcMotorEx turelaD, turelaS;
-        private final DcMotor stagiu;
-        private double target = 0, vel = 0;
-        private boolean on = false, atSpeed = false, wasFeeding = false;
-        private boolean feeding = false, tooFast = false, recovering = false;
+        private final Flywheel fw;
+        private boolean wasFeeding = false, feeding = false, recovering = false;
         private final ElapsedTime recoverTimer = new ElapsedTime();
         private int shots = 0;
 
-        public Shooter(HardwareMap hw) {
-            turelaD = hw.get(DcMotorEx.class, "turelaD");
-            turelaS = hw.get(DcMotorEx.class, "turelaS");
-            turelaD.setDirection(DcMotorSimple.Direction.FORWARD);
-            turelaS.setDirection(DcMotorSimple.Direction.REVERSE);
-            for (DcMotorEx m : new DcMotorEx[]{turelaD, turelaS}) {
-                m.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
-                m.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
-                m.setVelocityPIDFCoefficients(KP, KI, KD, KF);   // always applied (same as AutoHelper)
-            }
-            stagiu = hw.dcMotor.get("stagiu");
-            stagiu.setDirection(DcMotorSimple.Direction.REVERSE);
-            stagiu.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
-            // Nothing moves here: safe for INIT (G304.H / G403).
-        }
+        public Shooter(HardwareMap hw) { fw = new Flywheel(hw); }   // nothing moves: safe for INIT
 
-        public void setTarget(double ticksPerSec) { target = Math.max(0, ticksPerSec); }
-        public void setTargetForDistance(double cm) { target = velocityForDistance(cm); }
-        public double getTarget() { return target; }
-        public void spinUp() { on = true; }
-        public void spinDown() { on = false; }
-        public boolean isOn() { return on; }
-        public void toggle() { on = !on; }
-        public boolean isAtSpeed() { return atSpeed; }
+        public void setTarget(double ticksPerSec) { fw.setTarget(ticksPerSec); }
+        public double getTarget() { return fw.getTarget(); }
+        public void spinUp() { fw.setOn(true); }
+        public void spinDown() { fw.setOn(false); }
+        public boolean isOn() { return fw.isOn(); }
+        public void toggle() { fw.setOn(!fw.isOn()); }
+        public boolean isAtSpeed() { return fw.isAtSpeed(); }
+        public boolean isTooFast() {
+            return fw.isOn() && fw.getTarget() > 0 && fw.getVelocity() > fw.getTarget() * (1 + Flywheel.OVER_BAND);
+        }
         public int getShots() { return shots; }
-        public void resetShots() { shots = 0; }
-        public boolean isTooFast() { return tooFast; }
         public boolean isFeeding() { return feeding; }
         public boolean isRecovering() { return recovering; }
-
-        /** Last measured velocity (read once per loop in update()). */
-        public double getVelocity() { return vel; }
+        public double getVelocity() { return fw.getVelocity(); }
+        public double getVolts() { return fw.getVolts(); }
 
         /** Call every loop. fire = driver/auto wants to shoot now. */
         public void update(boolean fire) {
-            turelaD.setVelocity(on ? target : 0);
-            turelaS.setVelocity(on ? target : 0);
-
-            vel = (turelaD.getVelocity() + turelaS.getVelocity()) / 2.0;
-            double lo = target * (1 - SHOT_DIP), hi = target * (1 + OVER_BAND);
-            boolean dipped = vel < lo;
-            tooFast = on && target > 0 && vel > hi;
-            if (!on || target <= 0 || dipped || tooFast) atSpeed = false;           // fired / off / too fast
-            else if (Math.abs(vel - target) <= target * READY_BAND) atSpeed = true; // within +/-1%: feed
-
-            feeding = fire && atSpeed;
+            fw.update();
+            boolean dipped = fw.getVelocity() < fw.getTarget() * (1 - Flywheel.SHOT_DIP);
+            feeding = fire && fw.isAtSpeed();
             if (wasFeeding && !feeding && fire && dipped) {   // feeder cut by a dip = one ball fired
                 shots++;
                 recovering = true;                           // hold intake until speed is back
                 recoverTimer.reset();
             }
-            if (atSpeed || recoverTimer.milliseconds() > RECOVER_MAX_MS) recovering = false;
-            wasFeeding = feeding;   // stagiu is written once in loop(), not here
+            if (fw.isAtSpeed() || recoverTimer.milliseconds() > RECOVER_MAX_MS) recovering = false;
+            wasFeeding = feeding;
         }
 
-        public void stop() {
-            on = false;
-            stagiu.setPower(0);
-            turelaD.setPower(0);
-            turelaS.setPower(0);
-        }
-
-        /** Linear interpolation in the table, clamped at the ends. */
-        public static double velocityForDistance(double cm) {
-            int n = DIST_CM.length;
-            if (n == 1 || cm <= DIST_CM[0]) return VEL_TPS[0];
-            if (cm >= DIST_CM[n - 1]) return VEL_TPS[n - 1];
-            for (int i = 1; i < n; i++) {
-                if (cm <= DIST_CM[i]) {
-                    double t = (cm - DIST_CM[i - 1]) / (DIST_CM[i] - DIST_CM[i - 1]);
-                    return VEL_TPS[i - 1] + t * (VEL_TPS[i] - VEL_TPS[i - 1]);
-                }
-            }
-            return VEL_TPS[n - 1];
-        }
+        public void stop() { fw.stop(); }
     }
 }
