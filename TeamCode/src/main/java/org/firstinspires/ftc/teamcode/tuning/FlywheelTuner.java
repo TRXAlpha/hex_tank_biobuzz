@@ -1,226 +1,278 @@
 package org.firstinspires.ftc.teamcode.tuning;
 
 import com.acmerobotics.dashboard.FtcDashboard;
-import com.acmerobotics.dashboard.config.Config;
 import com.acmerobotics.dashboard.telemetry.MultipleTelemetry;
+import com.qualcomm.hardware.lynx.LynxModule;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 import com.qualcomm.robotcore.hardware.DcMotor;
-import com.qualcomm.robotcore.hardware.DcMotorEx;
 import com.qualcomm.robotcore.hardware.DcMotorSimple;
-import com.qualcomm.robotcore.hardware.PIDFCoefficients;
-import com.qualcomm.robotcore.hardware.VoltageSensor;
 import com.qualcomm.robotcore.util.ElapsedTime;
 
-import java.util.ArrayList;
-import java.util.List;
+import org.firstinspires.ftc.teamcode.Flywheel;
 
 /*
- * Flywheel tuner. All values are live-editable from FTC Dashboard (Config tab).
+ * FLYWHEEL TUNER - the screen tells you what to do. Everything saves by itself.
  *
- * Cross (A):        flywheel on/off
- * D-pad up/down:    TARGET +/- 50
- * Hold R2:          gated feed (same gating as AutoHelper: low + high limit)
- * Square (X):       stagiu full power, no gating (comparison)
- * Hold Circle (B):  kF CALIBRATION - full raw power, read "CAL kF" after ~2 s
- * Triangle (Y):     reset peak / low + clear shot log
- * D-pad left:       mark LAST shot as MISS (press again to undo)
+ * STEP 1 (once, and again after you change the shooter):
+ *   Take the balls out. Press TRIANGLE. Wait ~15 s. Done.
  *
- * Every feed start logs the flywheel speed (% of target). Shots count as HIT
- * unless you mark them. Telemetry shows avg/min/max feed % for hits vs misses.
+ * STEP 2 (build the distance table):
+ *   Put the robot on the field. Measure with a tape: turret center -> goal wall
+ *   (floor, under the AprilTags). Set that distance with D-pad LEFT / RIGHT.
+ *   CROSS = flywheel on.  Hold R2 = shoot.
+ *   Ball too short -> D-pad UP.   Ball too long -> D-pad DOWN.   (L1 / R1 = big steps)
+ *   Ball goes in 3 times in a row -> press CIRCLE (saves this distance).
+ *   Move the robot ~30 cm and repeat. Get at least 5 distances, near to far.
  *
- * Dashboard Graph: plot "vel" and "target".
+ * Other:  hold SQUARE = unjam (intake + stagiu reverse).  SHARE = delete point at this distance.
  */
-@Config
-@TeleOp(name = "ShootSimple", group = "tuning")
+@TeleOp(name = "Flywheel Tuner", group = "tuning")
 public class FlywheelTuner extends OpMode {
-    public static double KP = 20, KI = 0.2, KD = 0, KF = 15.6;
-    public static double TARGET = 1200;                       // ticks/s
 
-    public static double READY_BAND = 0.01;   // enter "at speed" only within +/-1% of target
-    public static double SHOT_DIP = 0.025;    // below 97.5% = ball fired -> stop stagiu
-    public static double OVER_BAND = 0.02;    // above 102% = too fast -> stop stagiu
+    // calibration sweep: powers tried, time to settle, time to measure
+    private static final double[] CAL_POWERS = {0.3, 0.45, 0.6, 0.75, 0.9};
+    private static final double CAL_SETTLE_S = 2.0, CAL_MEASURE_S = 1.0;
 
-    public static double CAL_SETTLE_S = 1.5;  // ignore spin-up before averaging
-    public static int LOG_SHOW = 15;          // shots shown in telemetry
+    private Flywheel fw;
+    private DcMotor stagiu, intake;
 
-    private DcMotorEx turelaD, turelaS;
-    private DcMotor stagiu;
-    private VoltageSensor battery;
+    private boolean fileFound, calibratedNow;
+    private double distCm = 150, speed = 1200;
+    private String msg = "";
 
-    private boolean on, atSpeed, cal, pFeed;
-    private boolean pA, pUp, pDown, pLeft;
-    private double aKP = Double.NaN, aKI, aKD, aKF;   // values currently on the hub
-
+    // calibration state
+    private boolean cal = false;
+    private int calStep;
     private final ElapsedTime calTimer = new ElapsedTime();
-    private double calSum = 0;
-    private int calN = 0;
+    private final double[] calE = new double[CAL_POWERS.length], calV = new double[CAL_POWERS.length];
+    private double sumV, sumVolts;
+    private int nSamples;
 
-    private double peak = 0, low = Double.MAX_VALUE;
+    // shot counter
+    private boolean wasFeeding;
+    private int shots;
+    private double lastShotPct;
 
-    // shot log: speed at feed start, in % of target
-    private final List<Double> shotPct = new ArrayList<>();
-    private final List<Boolean> shotMiss = new ArrayList<>();
+    // buttons (edge detect)
+    private boolean pTri, pCross, pCircle, pShare, pUp, pDown, pLeft, pRight, pL1, pR1;
 
     @Override
     public void init() {
         telemetry = new MultipleTelemetry(telemetry, FtcDashboard.getInstance().getTelemetry());
+        for (LynxModule hub : hardwareMap.getAll(LynxModule.class)) {
+            hub.setBulkCachingMode(LynxModule.BulkCachingMode.AUTO);
+        }
+        fileFound = Flywheel.load();
+        fw = new Flywheel(hardwareMap);
 
-        turelaD = hardwareMap.get(DcMotorEx.class, "turelaD");
-        turelaS = hardwareMap.get(DcMotorEx.class, "turelaS");
-        turelaS.setDirection(DcMotorSimple.Direction.REVERSE);
         stagiu = hardwareMap.dcMotor.get("stagiu");
         stagiu.setDirection(DcMotorSimple.Direction.REVERSE);
         stagiu.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
-        battery = hardwareMap.voltageSensor.iterator().next();
+        intake = hardwareMap.dcMotor.get("intake");
+        intake.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
 
-        setMode(DcMotor.RunMode.RUN_USING_ENCODER);
-        applyPIDF();
+        if (!Flywheel.TABLE.isEmpty()) speed = Flywheel.speedForDistance(distCm);
     }
 
     @Override
-    public void loop() {
-        // ---------- buttons ----------
-        if (gamepad1.a && !pA) on = !on;
-        if (gamepad1.dpad_up && !pUp) TARGET += 50;
-        if (gamepad1.dpad_down && !pDown) TARGET -= 50;
-        if (gamepad1.dpad_left && !pLeft && !shotMiss.isEmpty()) {
-            int last = shotMiss.size() - 1;
-            shotMiss.set(last, !shotMiss.get(last));          // toggle miss on newest shot
-        }
-        pA = gamepad1.a; pUp = gamepad1.dpad_up; pDown = gamepad1.dpad_down; pLeft = gamepad1.dpad_left;
-        if (gamepad1.y) {
-            peak = 0;
-            low = Double.MAX_VALUE;
-            shotPct.clear();
-            shotMiss.clear();
-        }
-
-        // ---------- kF calibration ----------
-        if (gamepad1.b != cal) {
-            cal = gamepad1.b;
-            setMode(cal ? DcMotor.RunMode.RUN_WITHOUT_ENCODER : DcMotor.RunMode.RUN_USING_ENCODER);
-            if (cal) { calTimer.reset(); calSum = 0; calN = 0; }
-            else aKP = Double.NaN;   // force PIDF re-apply after mode change
-        }
-        if (cal) {
-            stagiu.setPower(0);
-            turelaD.setPower(1);
-            turelaS.setPower(1);
-            double vm = avgVel();
-            if (calTimer.seconds() > CAL_SETTLE_S) { calSum += vm; calN++; }
-            double avg = calN > 0 ? calSum / calN : vm;
-            telemetry.addLine("CALIBRATING - hold Circle until avg is stable");
-            telemetry.addData("vel now", "%.0f", vm);
-            telemetry.addData("CAL max tps (avg)", "%.0f  (%d samples)", avg, calN);
-            telemetry.addData("CAL kF = 32767 / max", "%.2f", 32767.0 / avg);
-            telemetry.addData("battery V", "%.2f", battery.getVoltage());
-            telemetry.update();
-            return;
-        }
-
-        // ---------- velocity control ----------
-        applyPIDF();   // only writes to the hub when a value changed
-        turelaD.setVelocity(on ? TARGET : 0);
-        turelaS.setVelocity(on ? TARGET : 0);
-        double v = avgVel();
-
-        // ---------- gating (identical to AutoHelper) ----------
-        double lo = TARGET * (1 - SHOT_DIP), hi = TARGET * (1 + OVER_BAND);
-        if (!on || v < lo || v > hi) atSpeed = false;
-        else if (Math.abs(v - TARGET) <= TARGET * READY_BAND) atSpeed = true;
-
-        if (gamepad1.x) stagiu.setPower(1.0);
-        else if (gamepad1.right_trigger > 0.5 && atSpeed) stagiu.setPower(1.0);
-        else stagiu.setPower(0);
-
-        // ---------- shot log: speed at each feed start ----------
-        boolean feeding = stagiu.getPower() > 0;
-        if (feeding && !pFeed && on && TARGET > 0) {
-            shotPct.add(v / TARGET * 100.0);
-            shotMiss.add(false);
-        }
-        pFeed = feeding;
-
-        if (on) { peak = Math.max(peak, v); low = Math.min(low, v); }
-
-        // ---------- telemetry ----------
-        telemetry.addData("vel", v);          // numeric -> graphable
-        telemetry.addData("target", TARGET);  // numeric -> graphable
-        telemetry.addData("err %", "%.2f", on && TARGET > 0 ? (v - TARGET) / TARGET * 100 : 0);
-        telemetry.addData("peak / low %", "%.1f / %.1f",
-                on && TARGET > 0 ? peak / TARGET * 100 : 0,
-                on && TARGET > 0 && low < Double.MAX_VALUE ? low / TARGET * 100 : 0);
-        telemetry.addData("at speed", atSpeed);
-        telemetry.addData("stagiu", "%.2f", stagiu.getPower());
-
-        telemetry.addData("shots", "%d  (miss %d)", shotPct.size(), countMiss());
-        telemetry.addData("HIT  feed %", stats(false));
-        telemetry.addData("MISS feed %", stats(true));
-        telemetry.addData("log (newest first, X = miss)", logString());
-
-        telemetry.addData("vel D / S", "%.0f / %.0f  diff %.0f",
-                turelaD.getVelocity(), turelaS.getVelocity(),
-                turelaD.getVelocity() - turelaS.getVelocity());
-        PIDFCoefficients c = turelaD.getPIDFCoefficients(DcMotor.RunMode.RUN_USING_ENCODER);
-        telemetry.addData("PIDF on hub", "%.2f / %.2f / %.2f / %.2f", c.p, c.i, c.d, c.f);
-        telemetry.addData("battery V", "%.2f", battery.getVoltage());
+    public void init_loop() {
+        telemetry.addLine(fileFound ? "Saved values found. Press START."
+                                    : "No saved values yet. Press START, then do STEP 1.");
+        telemetry.addData("Battery", "%.2f V %s", fw.getVolts(), fw.getVolts() < 12.0 ? " <- CHARGE IT" : "");
         telemetry.update();
     }
 
     @Override
-    public void stop() {
+    public void loop() {
+        if (pressed(gamepad1.triangle, pTri)) {
+            if (cal) cancelCal("Calibration cancelled.");
+            else startCal();
+        }
+        pTri = gamepad1.triangle;
+
+        if (cal) {
+            calLoop();
+            saveButtons();
+            return;
+        }
+
+        // ---------- buttons ----------
+        if (pressed(gamepad1.cross, pCross)) fw.setOn(!fw.isOn());
+        if (pressed(gamepad1.dpad_up, pUp))       speed += 25;
+        if (pressed(gamepad1.dpad_down, pDown))   speed -= 25;
+        if (pressed(gamepad1.right_bumper, pR1))  speed += 100;
+        if (pressed(gamepad1.left_bumper, pL1))   speed -= 100;
+        if (pressed(gamepad1.dpad_right, pRight)) changeDist(+10);
+        if (pressed(gamepad1.dpad_left, pLeft))   changeDist(-10);
+        if (pressed(gamepad1.circle, pCircle)) {
+            Flywheel.putPoint(distCm, speed);
+            Flywheel.save();
+            msg = String.format("SAVED %.0f cm = %.0f. Now move ~30 cm.", distCm, speed);
+        }
+        if (pressed(gamepad1.share, pShare)) {
+            msg = Flywheel.removePoint(distCm) ? "Deleted point at " + (int) distCm + " cm." : "No point here.";
+            Flywheel.save();
+        }
+        saveButtons();
+        speed = Math.max(0, speed);
+
+        // ---------- flywheel ----------
+        fw.setTarget(speed);
+        fw.update();
+
+        // ---------- feed: hold R2, only when at speed ----------
+        boolean feeding = gamepad1.right_trigger > 0.5 && fw.isOn() && fw.isAtSpeed();
+        if (gamepad1.square) {
+            stagiu.setPower(-1);
+            intake.setPower(-1);
+        } else if (feeding) {
+            stagiu.setPower(1);
+            intake.setPower(1);
+        } else {
+            stagiu.setPower(0);
+            intake.setPower(0);
+        }
+        if (feeding && !wasFeeding) {
+            shots++;
+            lastShotPct = fw.getVelocity() / speed * 100;
+        }
+        wasFeeding = feeding;
+
+        // ---------- screen ----------
+        boolean ready = fileFound || calibratedNow;
+        if (!ready) {
+            telemetry.addLine(">>> STEP 1: take balls out, press TRIANGLE, wait 15 s <<<");
+        } else {
+            telemetry.addLine(">>> STEP 2: tape-measure turret -> goal. Set distance (D-pad L/R).");
+            telemetry.addLine("CROSS = flywheel on. Hold R2 = shoot.");
+            telemetry.addLine("Short -> D-pad UP. Long -> D-pad DOWN. In 3x -> CIRCLE.");
+        }
+        if (!msg.isEmpty()) telemetry.addLine(msg);
+        telemetry.addLine("");
+        telemetry.addData("DISTANCE", "%.0f cm", distCm);
+        telemetry.addData("SPEED", "%.0f  (flywheel %s)", speed, fw.isOn() ? "ON" : "off");
+        telemetry.addData("READY TO SHOOT", fw.isAtSpeed() ? "YES" : "no");
+        if (fw.isOn() && speed > fw.maxSpeedNow()) {
+            telemetry.addLine("!! TOO FAST for this battery: max ~" + (int) fw.maxSpeedNow() + " !!");
+        }
+        telemetry.addData("Battery", "%.2f V %s", fw.getVolts(), fw.getVolts() < 11.5 ? " <- LOW, CHANGE IT" : "");
+        telemetry.addData("Shots / last at", "%d / %.1f %%", shots, lastShotPct);
+        telemetry.addData("Saved table", Flywheel.tableString());
+        telemetry.addLine("");
+        telemetry.addData("vel", fw.getVelocity());       // graph these two on Dashboard
+        telemetry.addData("target", speed);
+        telemetry.addData("power", "%.2f", fw.getPower());
+        double vd = fw.getVelD(), vs = fw.getVelS();
+        if (fw.isOn() && Math.abs(vd - vs) > 0.1 * Math.max(Math.abs(vd), Math.abs(vs))) {
+            telemetry.addLine("!! LEFT/RIGHT speeds differ >10% - check encoder cables / belts !!");
+        }
+        telemetry.addData("vel D / S", "%.0f / %.0f", vd, vs);
+        telemetry.addData("KS / KV / KP", "%.3f / %.6f / %.4f", Flywheel.KS, Flywheel.KV, Flywheel.KP);
+        telemetry.update();
+    }
+
+    // ===================== calibration =====================
+
+    private void startCal() {
+        cal = true;
+        calStep = 0;
+        resetSamples();
+        calTimer.reset();
+        fw.setOn(false);
+        msg = "";
+    }
+
+    private void cancelCal(String why) {
+        cal = false;
+        fw.stop();
+        msg = why;
+    }
+
+    private void calLoop() {
         stagiu.setPower(0);
-        turelaD.setPower(0);
-        turelaS.setPower(0);
+        intake.setPower(0);
+        double p = CAL_POWERS[calStep];
+        fw.setRawPower(p);
+
+        double t = calTimer.seconds();
+        if (t > CAL_SETTLE_S) {
+            sumV += fw.getVelocity();
+            sumVolts += fw.getVolts();
+            nSamples++;
+        }
+        if (t > CAL_SETTLE_S + CAL_MEASURE_S) {
+            calV[calStep] = sumV / nSamples;
+            calE[calStep] = p * (sumVolts / nSamples) / Flywheel.NOMINAL_V;   // power as if 12 V
+            calStep++;
+            resetSamples();
+            calTimer.reset();
+            if (calStep == CAL_POWERS.length) {
+                finishCal();
+                return;
+            }
+        }
+
+        telemetry.addLine("CALIBRATING - do not touch. TRIANGLE = cancel.");
+        telemetry.addData("Step", "%d / %d  (power %.2f)", calStep + 1, CAL_POWERS.length, p);
+        telemetry.addData("Speed now", "%.0f", fw.getVelocity());
+        telemetry.addData("Battery", "%.2f V", fw.getVolts());
+        telemetry.update();
+    }
+
+    /** Straight line through (speed, 12V-power): power = KS + KV * speed. */
+    private void finishCal() {
+        int n = CAL_POWERS.length;
+        double mv = 0, me = 0;
+        for (int i = 0; i < n; i++) { mv += calV[i]; me += calE[i]; }
+        mv /= n; me /= n;
+        double num = 0, den = 0;
+        for (int i = 0; i < n; i++) {
+            num += (calV[i] - mv) * (calE[i] - me);
+            den += (calV[i] - mv) * (calV[i] - mv);
+        }
+        double kv = den > 0 ? num / den : 0;
+        double ks = me - kv * mv;
+
+        if (kv <= 0 || ks < -0.05 || ks > 0.3) {
+            cancelCal(String.format("CALIBRATION FAILED (KS %.3f KV %.6f). Flywheel stuck or encoder unplugged?", ks, kv));
+            return;
+        }
+        Flywheel.KS = Math.max(0, ks);
+        Flywheel.KV = kv;
+        Flywheel.save();
+        calibratedNow = true;
+        cancelCal(String.format("CALIBRATION OK. Max speed at 12 V ~%.0f. Now do STEP 2.", (1 - ks) / kv));
+    }
+
+    private void resetSamples() {
+        sumV = 0;
+        sumVolts = 0;
+        nSamples = 0;
     }
 
     // ===================== helpers =====================
 
-    private double avgVel() {
-        return (turelaD.getVelocity() + turelaS.getVelocity()) / 2.0;
+    private void changeDist(double d) {
+        distCm = Math.max(0, distCm + d);
+        if (!Flywheel.TABLE.isEmpty()) speed = Math.round(Flywheel.speedForDistance(distCm));   // good start guess
     }
 
-    private void setMode(DcMotor.RunMode mode) {
-        turelaD.setMode(mode);
-        turelaS.setMode(mode);
+    private static boolean pressed(boolean now, boolean before) {
+        return now && !before;
     }
 
-    private void applyPIDF() {
-        if (KP == aKP && KI == aKI && KD == aKD && KF == aKF) return;
-        for (DcMotorEx m : new DcMotorEx[]{turelaD, turelaS}) {
-            m.setVelocityPIDFCoefficients(KP, KI, KD, KF);   // always applied, also when KF = 0
-        }
-        aKP = KP; aKI = KI; aKD = KD; aKF = KF;
+    private void saveButtons() {
+        pCross = gamepad1.cross; pCircle = gamepad1.circle; pShare = gamepad1.share;
+        pUp = gamepad1.dpad_up; pDown = gamepad1.dpad_down;
+        pLeft = gamepad1.dpad_left; pRight = gamepad1.dpad_right;
+        pL1 = gamepad1.left_bumper; pR1 = gamepad1.right_bumper;
     }
 
-    private int countMiss() {
-        int n = 0;
-        for (boolean m : shotMiss) if (m) n++;
-        return n;
-    }
-
-    /** avg / min / max feed % for hits (miss=false) or misses (miss=true). */
-    private String stats(boolean miss) {
-        double sum = 0, mn = Double.MAX_VALUE, mx = -Double.MAX_VALUE;
-        int n = 0;
-        for (int i = 0; i < shotPct.size(); i++) {
-            if (shotMiss.get(i) != miss) continue;
-            double p = shotPct.get(i);
-            sum += p; mn = Math.min(mn, p); mx = Math.max(mx, p); n++;
-        }
-        if (n == 0) return "-";
-        return String.format("avg %.1f  min %.1f  max %.1f  (n=%d)", sum / n, mn, mx, n);
-    }
-
-    private String logString() {
-        StringBuilder sb = new StringBuilder();
-        int shown = 0;
-        for (int i = shotPct.size() - 1; i >= 0 && shown < LOG_SHOW; i--, shown++) {
-            sb.append(String.format("%.1f", shotPct.get(i)));
-            if (shotMiss.get(i)) sb.append("X");
-            sb.append("  ");
-        }
-        return sb.length() == 0 ? "-" : sb.toString();
+    @Override
+    public void stop() {
+        fw.stop();
+        stagiu.setPower(0);
+        intake.setPower(0);
     }
 }
