@@ -11,17 +11,17 @@ import org.firstinspires.ftc.teamcode.auto.helpere.AutoHelper;
 /**
  * Wait for tags, shoot, drive. RED values below; BLUE mirrors them (y -> -y, heading -> -heading).
  * Run AutoTrasTiltJosRed or AutoTrasTiltJosBlue (this class is shared code, not an OpMode by itself).
- * Uses AutoHelper.setup() with the AutoHelperTilted values: far CELL, turret forward in INIT,
- * feed only on live tags, flywheel 1200.
+ * Uses AutoHelper.setup() with its own values: far CELL, turret forward in INIT,
+ * feed only on live tags, flywheel 1200 (the old AutoHelperTilted values).
  */
 @Config
 public abstract class AutoTrasTiltJos extends OpMode {
 
-    // ---------- AutoHelperTilted values ----------
+    // ---------- values passed to AutoHelper.setup() ----------
     public static int RED_TAG = 30, BLUE_TAG = 42;   // far CELL: red / blue
     public static double V_INIT = 0.663;             // turret forward in INIT
     public static boolean FEED_NEEDS_TAGS = true;    // feed only on live tags
-    public static double FLY_TARGET = 1200;          // ticks/s (AutoHelperTilted value)
+    public static double FLY_TARGET = 1200;          // ticks/s
 
     // ---------- timing ----------
     public static double TAG_TIMEOUT_S = 20;   // no tags by then -> park
