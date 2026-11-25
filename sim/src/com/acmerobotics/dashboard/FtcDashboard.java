@@ -1,0 +1,1 @@
+package com.acmerobotics.dashboard; public class FtcDashboard { static FtcDashboard I = new FtcDashboard(); public static FtcDashboard getInstance(){return I;} public org.firstinspires.ftc.robotcore.external.Telemetry getTelemetry(){return sim.World.tele;} }

@@ -1,0 +1,1 @@
+package com.qualcomm.hardware.limelightvision; public class Limelight3A { public void setPollRateHz(int h){} public boolean pipelineSwitch(int i){return true;} public void start(){} public void stop(){} public LLResult getLatestResult(){return sim.World.llLatest;} }

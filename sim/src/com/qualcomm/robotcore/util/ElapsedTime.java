@@ -1,0 +1,1 @@
+package com.qualcomm.robotcore.util; public class ElapsedTime { double t0 = sim.World.t; public void reset(){t0=sim.World.t;} public double seconds(){return sim.World.t-t0;} public double milliseconds(){return (sim.World.t-t0)*1000;} }

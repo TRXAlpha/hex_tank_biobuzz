@@ -32,6 +32,7 @@ import org.firstinspires.ftc.teamcode.Flywheel;
  *   R2 hold        FORCE shot (waits only for flywheel speed)
  *   Circle hold    unjam (intake + stagiu reverse)
  *   Square         flywheel on/off (on at start)
+ *   Share          forget the CELL and scan again (if the turret aims at the wrong place)
  * INIT: D-pad LEFT = RED, D-pad RIGHT = BLUE.
  *
  * HOW IT AIMS, every new camera frame:
@@ -41,6 +42,7 @@ import org.firstinspires.ftc.teamcode.Flywheel;
  *   4. Save the center as a FIELD point (x, y) with the Pinpoint odometry pose from when the picture was taken.
  * Between frames, and when the tags are lost, the turret aims at that point using the odometry pose.
  * Every new frame re-measures the point, so odometry drift is corrected while tags are in view.
+ * Before the first sighting the turret sweeps its whole range to find the tags.
  * The distance turret -> CELL center (from odometry) picks the flywheel speed from the Flywheel table.
  *
  * BEFORE THE MEET: Limelight pipeline tag size = 82.55 mm (3.25 in, game manual 9.9).
@@ -54,6 +56,7 @@ public class TeleopAutoAim extends OpMode {
     public static int PIPELINE = 2;
     public static double CAM_PITCH_DEG = 25;     // lens up from horizontal
     public static double CAM_FWD_MM = 30;        // lens ahead of the turret pivot
+    public static double SCAN_DEG_S = 60;        // turret sweep speed while looking for the first tags
     public static double DIST_SCALE = 1.0;       // tape / screen dist. Only if the tag size can't be fixed.
     public static double TAG_OUTER_MM = 165.1, TAG_INNER_MM = 69.85;   // tag centers from cluster center
     public static double LOST_MS = 300;          // tags count as "seen" for this long after the last frame
@@ -69,6 +72,7 @@ public class TeleopAutoAim extends OpMode {
 
     // ---------- shooting ----------
     public static double AIM_TOL_DEG = 3;
+    public static double AIM_SETTLE_MS = 100;    // must stay on target this long before a shot
     public static int FIRE_MIN_TAGS = 2;
     public static boolean SPEED_FROM_DISTANCE = true;   // false = always FIXED_SPEED, no distance check
     public static double FIXED_SPEED = 1300;
@@ -79,6 +83,7 @@ public class TeleopAutoAim extends OpMode {
     private GoBildaPinpointDriver odo;
     private Flywheel fw;
     private boolean red = false, flyFile, pSquare;
+    private double scanDir = 1, onSince = -1;
 
     // aim
     private boolean haveAim = false;
@@ -202,7 +207,14 @@ public class TeleopAutoAim extends OpMode {
             target = reachable(want);
             saturated = Math.abs(AngleUnit.normalizeDegrees(want - target)) > 0.5;
             if (!saturated) tv = -Math.toDegrees(omega);   // turn against the robot's rotation
+        } else {                                           // never seen the CELL: sweep to find it
+            if (target >= maxDeg - 5) scanDir = -1;
+            else if (target <= minDeg + 5) scanDir = 1;
+            target = Math.max(minDeg, Math.min(maxDeg, target + scanDir * SCAN_DEG_S * dt));
+            saturated = false;
+            tv = scanDir * SCAN_DEG_S;
         }
+        if (gamepad1.share) { haveAim = false; tags = 0; }    // forget -> scan again
         driveTurret(dt, tv);
 
         // ---------- flywheel ----------
@@ -215,14 +227,17 @@ public class TeleopAutoAim extends OpMode {
 
         // ---------- auto-fire decision ----------
         boolean onTarget = haveAim && !saturated && Math.abs(target - deg) <= AIM_TOL_DEG;
+        if (!onTarget) onSince = -1; else if (onSince < 0) onSince = now;
+        boolean steady = onTarget && now - onSince >= AIM_SETTLE_MS;
         boolean ok = false;
         String why;
         if (!fw.isOn())                                                why = "flywheel OFF (Square)";
+        else if (!haveAim)                                             why = "SCANNING for tags";
         else if (tags < FIRE_MIN_TAGS)                                 why = "looking for tags";
         else if (SPEED_FROM_DISTANCE && dist < Flywheel.MIN_SHOT_CM)   why = "TOO CLOSE - back up";
         else if (SPEED_FROM_DISTANCE && dist > Flywheel.MAX_SHOT_CM)   why = "TOO FAR - get closer";
         else if (saturated)                                            why = "turret at limit - turn robot";
-        else if (!onTarget)                                            why = "aiming";
+        else if (!steady)                                              why = "aiming";
         else if (!fw.isAtSpeed())                                      why = "speeding up";
         else { why = "FIRE"; ok = true; }
         boolean feed = fw.isAtSpeed() && (ok || force);
