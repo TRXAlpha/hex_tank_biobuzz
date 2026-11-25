@@ -14,8 +14,8 @@ import org.firstinspires.ftc.robotcore.external.navigation.CurrentUnit;
  * BATTERY TEST - about 8 s. Run it with EVERY battery and compare. Robot does not drive.
  *
  * 1. Rest voltage, everything off.
- * 2. Flywheel full power from stop (big current). Voltage vs current -> resistance of
- *    battery + switch + wires + connectors. Higher = more sag.
+ * 2. Flywheel full power from stop (big current). Voltage drop / current over the first
+ *    0.3 s -> resistance of battery + switch + wires + connectors. Higher = more sag.
  * 3. Intake + stagiu alone -> their current. High current = jam or friction.
  *
  * Take the balls out first.
@@ -50,8 +50,8 @@ public class BatteryTest extends LinearOpMode {
         while (opModeIsActive() && t.seconds() < 0.5) { rest += bat.getVoltage(); n++; }
         rest /= Math.max(1, n);
 
-        // 2. flywheel spin-up: fit V = rest - R * I (least squares over all samples)
-        double sI = 0, sV = 0, sII = 0, sIV = 0, minV = rest, maxI = 0;
+        // 2. flywheel spin-up: resistance = average drop / average current while the current is high
+        double sI = 0, sV = 0, minV = rest, maxI = 0;
         n = 0;
         d.setPower(1);
         s.setPower(1);
@@ -59,15 +59,14 @@ public class BatteryTest extends LinearOpMode {
         while (opModeIsActive() && t.seconds() < 1.5) {
             double i = d.getCurrent(CurrentUnit.AMPS) + s.getCurrent(CurrentUnit.AMPS);
             double v = bat.getVoltage();
-            sI += i; sV += v; sII += i * i; sIV += i * v; n++;
+            if (t.seconds() < 0.3) { sI += i; sV += v; n++; }
             minV = Math.min(minV, v);
             maxI = Math.max(maxI, i);
         }
         d.setPower(0);
         s.setPower(0);
-        double den = n * sII - sI * sI;
-        double ohm = den > 1e-6 ? -(n * sIV - sI * sV) / den : 0;
-        if (ohm <= 0 && maxI > 1) ohm = (rest - minV) / maxI;        // fallback: simple drop / current
+        double avgI = sI / Math.max(1, n), avgV = sV / Math.max(1, n);
+        double ohm = avgI > 1 ? Math.max(0, rest - avgV) / avgI : 0;
 
         sleep(2500);                                                 // let the flywheel coast down
 
@@ -94,7 +93,8 @@ public class BatteryTest extends LinearOpMode {
         while (opModeIsActive()) {
             telemetry.addData("Rest voltage", "%.2f V%s", rest, rest < 12.3 ? "  (low: not charged or old)" : "");
             telemetry.addData("Resistance", "%.0f milliohm  (lower = better)", ohm * 1000);
-            telemetry.addData("Flywheel spin-up", "max %.1f A, lowest %.2f V", maxI, minV);
+            telemetry.addData("Flywheel spin-up", "max %.1f A, lowest %.2f V (drop %.2f V)", maxI, minV, rest - minV);
+            telemetry.addData("First 0.3 s", "avg %.1f A, avg %.2f V", avgI, avgV);
             telemetry.addData("Full robot (~50 A)", "~%.1f V", atPeak);
             telemetry.addData("VERDICT", verdict);
             telemetry.addData("Intake + stagiu", "%.1f A%s", feedI, feedI > 5 ? "  HIGH: jam / friction / bad bearing" : "  ok");
