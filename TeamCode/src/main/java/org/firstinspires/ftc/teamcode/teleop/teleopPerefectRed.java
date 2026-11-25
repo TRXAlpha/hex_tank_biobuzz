@@ -14,7 +14,6 @@ import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 import com.qualcomm.robotcore.hardware.AnalogInput;
 import com.qualcomm.robotcore.hardware.DcMotor;
-import com.qualcomm.robotcore.hardware.DcMotorEx;
 import com.qualcomm.robotcore.hardware.DcMotorSimple;
 import com.qualcomm.robotcore.hardware.HardwareMap;
 import com.qualcomm.robotcore.util.ElapsedTime;
@@ -69,7 +68,7 @@ import org.firstinspires.ftc.teamcode.Pozitie;
  */
 @Config
 @TeleOp(name = "teleop full", group = "turela")
-public class teleopPerefect extends OpMode {
+public class teleopPerefectRed extends OpMode {
 
     // ================= CAMERA / MOUNT =================
     public static double MOUNT_X_MM = 0, MOUNT_Y_MM = 0;   // turret pivot from robot center
@@ -152,7 +151,7 @@ public class teleopPerefect extends OpMode {
     private double drvL = 0, drvR = 0;            // drive power after slew limit
     private boolean flyFile = false;              // flywheel values came from the tuner file
     private boolean pSquare, pShare;
-    private boolean red = false;                  // alliance, chosen in INIT
+    private boolean red = true;                  // alliance, chosen in INIT
     private int activeCell = -1;                  // 0 = LOW (y < SWITCH_Y), 1 = HIGH
     private int firstTag = 38;
     private boolean poseLoaded = false;
@@ -271,9 +270,6 @@ public class teleopPerefect extends OpMode {
             turret.setPower(0);
         }
 
-        if (gamepad1.dpad_left)  red = true;
-        if (gamepad1.dpad_right) red = false;
-        telemetry.addData("ALLIANCE (D-pad L=RED R=BLUE)", red ? "RED" : "BLUE");
         telemetry.addData("Flywheel values", flyFile ? "from tuner file" : "BUILT-IN (run Flywheel Tuner!)");
         telemetry.addData("Pose from auto", poseLoaded ? String.format("x %.0f y %.0f h %.1f",
                 Pozitie.x, Pozitie.y, Math.toDegrees(Pozitie.h)) : "NONE -> origin");
