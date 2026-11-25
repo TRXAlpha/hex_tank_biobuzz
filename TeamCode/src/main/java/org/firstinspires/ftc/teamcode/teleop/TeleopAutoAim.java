@@ -23,13 +23,14 @@ import org.firstinspires.ftc.robotcore.external.navigation.UnnormalizedAngleUnit
 import org.firstinspires.ftc.teamcode.Flywheel;
 
 /*
- * TELEOP AUTO-AIM. The robot aims, picks the speed and shoots by itself. The driver drives and collects.
+ * TELEOP AUTO-AIM. The turret always aims and the speed follows the distance. The driver drives, collects and shoots.
  *
  * DRIVER (PS5):
  *   Left stick Y + right stick X   drive
  *   L1 hold        intake
- *   (automatic)    shoots when: 2+ tags seen, turret on target, flywheel at speed, distance in range
- *   R2 hold        FORCE shot (waits only for flywheel speed)
+ *   R2 hold        SHOOT: feeds whenever the flywheel is at speed and the turret is steady on target
+ *                  (no aim yet -> feeds at speed). Driver decides distance.
+ *   Triangle       auto-fire ON/OFF (starts OFF). ON = shoots by itself when tags + aim + speed + range are OK
  *   Circle hold    unjam (intake + stagiu reverse)
  *   Square         flywheel on/off (on at start)
  *   Share          forget the CELL and scan again (if the turret aims at the wrong place)
@@ -74,6 +75,7 @@ public class TeleopAutoAim extends OpMode {
     public static double AIM_TOL_DEG = 3;
     public static double AIM_SETTLE_MS = 100;    // must stay on target this long before a shot
     public static int FIRE_MIN_TAGS = 2;
+    public static boolean AUTO_FIRE_AT_START = false;   // Triangle toggles it during the match
     public static boolean SPEED_FROM_DISTANCE = true;   // false = always FIXED_SPEED, no distance check
     public static double FIXED_SPEED = 1300;
 
@@ -82,7 +84,7 @@ public class TeleopAutoAim extends OpMode {
     private Limelight3A ll;
     private GoBildaPinpointDriver odo;
     private Flywheel fw;
-    private boolean red = false, flyFile, pSquare;
+    private boolean red = false, flyFile, pSquare, pTriangle, autoFire;
     private double scanDir = 1, onSince = -1;
 
     // aim
@@ -162,6 +164,7 @@ public class TeleopAutoAim extends OpMode {
     @Override
     public void start() {
         fw.setOn(true);
+        autoFire = AUTO_FIRE_AT_START;
         clock.reset();
         lastMs = 0;
     }
@@ -221,8 +224,10 @@ public class TeleopAutoAim extends OpMode {
         // ---------- flywheel ----------
         if (gamepad1.square && !pSquare) fw.setOn(!fw.isOn());
         pSquare = gamepad1.square;
-        boolean force = gamepad1.right_trigger > 0.5;
-        if (force) fw.setOn(true);
+        if (gamepad1.triangle && !pTriangle) autoFire = !autoFire;
+        pTriangle = gamepad1.triangle;
+        boolean hold = gamepad1.right_trigger > 0.5;
+        if (hold) fw.setOn(true);
         fw.setTarget(SPEED_FROM_DISTANCE && haveAim ? Flywheel.speedForDistance(dist) : FIXED_SPEED);
         fw.update();
 
@@ -241,7 +246,7 @@ public class TeleopAutoAim extends OpMode {
         else if (!steady)                                              why = "aiming";
         else if (!fw.isAtSpeed())                                      why = "speeding up";
         else { why = "FIRE"; ok = true; }
-        boolean feed = fw.isAtSpeed() && (ok || force);
+        boolean feed = fw.isAtSpeed() && ((autoFire && ok) || (hold && (!haveAim || steady)));
 
         // ---------- intake + stagiu (one write each per loop) ----------
         if (gamepad1.circle)  { intake.setPower(-1); stagiu.setPower(-1); }
@@ -249,7 +254,8 @@ public class TeleopAutoAim extends OpMode {
         else                  { intake.setPower(gamepad1.left_bumper ? 1 : 0); stagiu.setPower(0); }
 
         // ---------- screen ----------
-        telemetry.addData("SHOOT", force ? "FORCED" : why);
+        telemetry.addData("AUTO-FIRE (Triangle)", autoFire ? "ON" : "OFF - hold R2 to shoot");
+        telemetry.addData("SHOOT", hold ? (feed ? "R2: FIRING" : "R2: waiting for " + (fw.isAtSpeed() ? "aim" : "speed")) : why);
         telemetry.addData("Tags / dist", "%d / %.0f cm", tags, dist);
         telemetry.addData("Camera dist (last frame)", "%.0f cm", camDist);
         telemetry.addData("Odometry x / y / heading", "%.0f / %.0f mm / %.0f deg", x, y, Math.toDegrees(head));

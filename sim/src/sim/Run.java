@@ -45,6 +45,7 @@ public class Run {
         World.x = xCm*10; World.y = yCm*10; World.h = Math.toRadians(headDeg); World.potV = potV; }
 
     public static void main(String[] a){
+        TeleopAutoAim.AUTO_FIRE_AT_START = true;   // most scenarios test auto-fire
         // reach of the turret
         System.out.printf("Turret reach: V 0.5 -> %.0f deg, V 1.75 -> %.0f deg (0 = front, + = left)%n", World.turretDeg(0.5), World.turretDeg(1.75));
 
@@ -113,6 +114,19 @@ public class Run {
         run(Run::aim, 6, (t, op) -> World.pad.left_bumper = true, op -> lowV[0] = Math.min(lowV[0], World.vbat));
         System.out.printf("[7] OLD BATTERY 0.15 ohm, 140 cm: shots %d, speed at shots %s, lowest %.2f V%n", World.shots, pct(), lowV[0]);
         World.RBAT = 0.04;
+
+        // ===== 7b. Auto-fire OFF: no shots without R2, shots while R2 held =====
+        TeleopAutoAim.AUTO_FIRE_AT_START = false;
+        World.reset(); place(0, -100, 90 + 15, 0.663);
+        run(Run::aim, 4, (t, op) -> {}, null);
+        int noR2 = World.shots;
+        World.reset(); place(0, -100, 90 + 15, 0.663);
+        run(Run::aim, 4, (t, op) -> World.pad.right_trigger = (float) (t > 2.5 ? 1 : 0), null);
+        System.out.printf("[7b] AUTO-FIRE OFF at 100 cm: shots without R2 %d (expect 0), with R2 held from 2.5 s %d (expect >0), worst aim at a shot %.2f deg, screen %s%n", noR2, World.shots, World.shotAimMax, tl("SHOOT"));
+        World.reset(); place(0, -100, 90 + 15, 0.663);
+        run(Run::aim, 4, (t, op) -> World.pad.triangle = t > 1.0 && t < 1.1, null);
+        System.out.printf("     Triangle pressed once: shots %d (expect >0), screen %s%n", World.shots, tl("AUTO-FIRE (Triangle)"));
+        TeleopAutoAim.AUTO_FIRE_AT_START = true;
 
         // ===== 8. Wrong alliance selected =====
         World.reset(); place(0, -150, 90, 0.663);
