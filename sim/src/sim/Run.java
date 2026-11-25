@@ -131,6 +131,23 @@ public class Run {
         sens("camera pitch really 20 (code 25)", () -> World.CAM_PITCH_TRUE = 20);
         sens("tags 1000 mm high (not 700)", () -> World.TAG_H = 1000);
         sens("odometry 3% scale error", () -> World.ODO_SCALE = 1.03);
+        close();
+    }
+
+    static void close(){
+        System.out.println("\n[10] YOUR SHOOTING DISTANCES (camera lens 25 deg up):");
+        for (double th : new double[]{700, 1000}) for (double d : new double[]{90, 100, 110, 130, 170}) {
+            World.reset(); World.TAG_H = th; place(0, -d, 90 + 15, 0.663);
+            run(Run::aim, 4, (t, op) -> {}, null);
+            System.out.printf("    tags %4.0f mm high, %3.0f cm: dist screen %-12s speed %-12s aim err %5.2f  shots %2d  speed at shots %s  %s%n",
+                th, d, tl("Tags / dist"), tl("Speed"), World.aimErr(), World.shots, pct(), tl("SHOOT"));
+        }
+        World.TAG_H = 700;
+        System.out.println("    If the LENS pointed 65 deg up:");
+        World.reset(); World.CAM_PITCH_TRUE = 65; place(0, -100, 90 + 15, 0.663);
+        run(Run::aim, 4, (t, op) -> {}, null);
+        System.out.printf("    100 cm: tags %s, %s%n", tl("Tags / dist"), tl("SHOOT"));
+        World.CAM_PITCH_TRUE = 25;
     }
 
     static void sens(String name, Runnable setup){

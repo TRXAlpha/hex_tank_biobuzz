@@ -45,8 +45,8 @@ public class Flywheel {
         for (double[] p : measured) TABLE.add(p);
     }
 
-    // auto-fire only inside this range (cm). Under ~110 the shot is too sensitive to distance.
-    public static double MIN_SHOT_CM = 110;
+    // auto-fire only inside this range (cm). Team shoots 90-110 cm usually, 170 cm max.
+    public static double MIN_SHOT_CM = 90;
     public static double MAX_SHOT_CM = 175;
 
     public static boolean inRange(double cm) { return cm >= MIN_SHOT_CM && cm <= MAX_SHOT_CM; }
