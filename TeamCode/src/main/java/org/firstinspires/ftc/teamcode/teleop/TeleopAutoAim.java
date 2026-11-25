@@ -89,6 +89,7 @@ public class TeleopAutoAim extends OpMode {
     private boolean haveAim = false;
     private double fx, fy;                // mm, CELL center on the field (odometry frame)
     private double dist = 0;              // cm, turret pivot -> CELL center
+    private double camDist = 0;           // cm, same, from the last camera frame only (debug)
     private int tags = 0;
     private double lastSeen = -1e9, lastStale = 1e9;
 
@@ -250,6 +251,8 @@ public class TeleopAutoAim extends OpMode {
         // ---------- screen ----------
         telemetry.addData("SHOOT", force ? "FORCED" : why);
         telemetry.addData("Tags / dist", "%d / %.0f cm", tags, dist);
+        telemetry.addData("Camera dist (last frame)", "%.0f cm", camDist);
+        telemetry.addData("Odometry x / y / heading", "%.0f / %.0f mm / %.0f deg", x, y, Math.toDegrees(head));
         telemetry.addData("Speed", "%.0f / %.0f", fw.getVelocity(), fw.getTarget());
         telemetry.addData("Turret", "%.1f -> %.1f deg%s", deg, target, potOk ? "" : "  POT ERROR");
         telemetry.addData("Battery", "%.2f V%s", fw.getVolts(), fw.getVolts() < 10 ? "  LOW" : "");
@@ -308,6 +311,7 @@ public class TeleopAutoAim extends OpMode {
         cx = cx / n[c] + CAM_FWD_MM;                                // from the turret pivot
         cy = cy / n[c];
 
+        camDist = Math.hypot(cx, cy) / 10.0;
         double a = hHead[j] + Math.toRadians(hPan[j]);              // turret direction on the field
         double nx = hX[j] + cx * Math.cos(a) - cy * Math.sin(a);
         double ny = hY[j] + cx * Math.sin(a) + cy * Math.cos(a);
