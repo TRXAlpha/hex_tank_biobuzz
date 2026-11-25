@@ -29,7 +29,8 @@ import org.firstinspires.ftc.robotcore.external.navigation.UnnormalizedAngleUnit
  *
  * OpMode usage (iterative):
  *   init():       drive = AutoHelper.fromHardwareMap(...)
- *   init_loop():  drive.turretInitLoop(telemetry)     -> turret goes to V_CENTER (R103.B: allowed in AUTO INIT)
+ *                 drive.setup(tag, vInit, feedNeedsTags, flyTarget)   (optional, see setup())
+ *   init_loop():  drive.turretInitLoop(telemetry)     -> turret goes to V_INIT (R103.B: allowed in AUTO INIT)
  *   start():      drive.startTurret()                  -> seeds hive center from current pan + HIVE_DIST_MM
  *   loop():       drive.update(telemetry) FIRST, then lap()/shootFor()/...
  *   stop():       drive.stopAll()
@@ -182,6 +183,8 @@ public class AutoHelper {
     public static double V_FRONT = 0.663;
     public static double V_LIMIT_MAX = 1.75;
     public static double V_LIMIT_MIN = 0.5;
+    public static double V_INIT = 1.03;           // turret pot V in INIT: 1.03 = side (V_CENTER), 0.663 = forward
+    public static boolean FEED_NEEDS_TAGS = false; // true = feed only while tags are seen live (no odometry-only shots)
     public static double kD = 0.0002;
     public static double kP = 0.006;
     public static double kS = 0.2;
@@ -217,6 +220,7 @@ public class AutoHelper {
     // ===================== CLUSTER STATE =====================
     private static final int N = 4;
     private boolean haveCenter = false, centerLocked = false, seeded = false, haveU = false, uAssumed = false;
+    private boolean everSeen = false;   // true after the first real tag frame (the seed does not count)
     private double cx, cy;
     private double ux = 0, uy = 1;
     private double slopeAcc = 0;
@@ -278,6 +282,14 @@ public class AutoHelper {
         clock.reset();
     }
 
+    /** Same as below, and sets FIRST_TAG (leftmost tag of the CELL to aim at: 30, 34, 38 or 42). */
+    public static AutoHelper fromHardwareMap(HardwareMap hardwareMap,
+                                             String leftName, String rightName, String pinpointName,
+                                             double podOffsetX_mm, double podOffsetY_mm, int tag) {
+        FIRST_TAG = tag;
+        return fromHardwareMap(hardwareMap, leftName, rightName, pinpointName, podOffsetX_mm, podOffsetY_mm);
+    }
+
     public static AutoHelper fromHardwareMap(HardwareMap hardwareMap,
                                              String leftName, String rightName, String pinpointName,
                                              double podOffsetX_mm, double podOffsetY_mm) {
@@ -298,6 +310,28 @@ public class AutoHelper {
         pinpoint.resetPosAndIMU();
         return new AutoHelper(stanga, dreapta, pinpoint, hardwareMap);
     }
+
+    /**
+     * Set the per-auto values in one call (in init, after fromHardwareMap).
+     *   firstTag       leftmost tag of the CELL: 30 red far, 34 red audience, 38 blue audience, 42 blue far
+     *   vInit          turret pot V in INIT: 1.03 = side, 0.663 = forward
+     *   feedNeedsTags  true = feed only while tags are seen live ("Tilted" behaviour)
+     *   flyTarget      flywheel ticks/s (used when FLY_FROM_DISTANCE = false)
+     * Example, behave like AutoHelperTilted:  drive.setup(30, 0.663, true, 1300);
+     */
+    public AutoHelper setup(int firstTag, double vInit, boolean feedNeedsTags, double flyTarget) {
+        FIRST_TAG = firstTag;
+        V_INIT = vInit;
+        FEED_NEEDS_TAGS = feedNeedsTags;
+        FLY_TARGET = flyTarget;
+        return this;
+    }
+
+    /** True after the first real tag frame since startTurret(). The seed does not count. */
+    public boolean tagsSeen() { return everSeen; }
+
+    /** True if a tag frame arrived in the last VISION_TIMEOUT_MS. */
+    public boolean tagsVisible() { return clock.milliseconds() - lastSeenMs < VISION_TIMEOUT_MS; }
 
     // =========================================================
     //                    MAIN UPDATE (call first in loop)
@@ -467,7 +501,8 @@ public class AutoHelper {
         fly.update();                          // battery-compensated speed control + at-speed gating
         flyVel = fly.getVelocity();
         atSpeed = fly.isAtSpeed();
-        onTarget = aiming && !saturated && Math.abs(target - deg) <= AIM_TOL_DEG;
+        onTarget = aiming && !saturated && Math.abs(target - deg) <= AIM_TOL_DEG
+                && (!FEED_NEEDS_TAGS || tagsVisible());
         boolean ready = atSpeed && onTarget;
         double p = (feed && ready) ? 1 : 0;
         intake.setPower(p);
@@ -496,6 +531,7 @@ public class AutoHelper {
         t.addData("fly vel / target", "%.0f / %.0f  (dist %.0f cm%s)", flyVel, flyTarget, shotDistCm,
                 Flywheel.inRange(shotDistCm) ? "" : " OUT OF RANGE");
         t.addData("battery", "%.2f V", fly.getVolts());
+        t.addData("tags visible", "%b%s", tagsVisible(), FEED_NEEDS_TAGS ? " (needed to feed)" : "");
         t.addData("at speed / on target / window", "%b / %b / %b", atSpeed, onTarget, windowStarted);
         t.addData("shoot ms", "%.0f", shootTimer.milliseconds());
 
@@ -531,7 +567,7 @@ public class AutoHelper {
     //                    TURRET (from teleop)
     // =========================================================
 
-    /** init_loop(): drive turret to V_CENTER at INIT_MAX_POWER. */
+    /** init_loop(): drive turret to V_INIT at INIT_MAX_POWER. */
     public void turretInitLoop(Telemetry t) {
         double now = clock.milliseconds();
         double dt = (now - lastTurretMs) / 1000.0;
@@ -540,14 +576,14 @@ public class AutoHelper {
 
         computeLimits();
         readTurret();
-        target = clamp(turretDeg(V_CENTER), minDeg, maxDeg);
+        target = clamp(turretDeg(V_INIT), minDeg, maxDeg);
         targetVel = 0;
         saturated = false;
         maxPowerNow = INIT_MAX_POWER;
         driveTurret(dt);
 
-        t.addLine("INIT: turret -> center");
-        t.addData("Pot V / target V", "%.3f / %.3f", v, V_CENTER);
+        t.addLine("INIT: turret -> V_INIT");
+        t.addData("Pot V / target V", "%.3f / %.3f", v, V_INIT);
         t.addData("Turret deg / target", "%.1f / %.1f", deg, target);
     }
 
@@ -570,6 +606,7 @@ public class AutoHelper {
         haveCenter = true;
         centerLocked = true;   // aim from odometry right away
         seeded = true;         // first vision frame may replace the seed, even with 1-2 tags
+        everSeen = false;
         lastNote = "seeded";
     }
 
@@ -680,6 +717,7 @@ public class AutoHelper {
 
         lastSeenMs = now;
         lastCnt = cnt;
+        everSeen = true;
 
         if (cnt >= 2) {
             double num = 0, den = 0, numH = 0;
