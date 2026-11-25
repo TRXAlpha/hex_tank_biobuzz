@@ -87,11 +87,6 @@ public abstract class AutoTrasParcare extends OpMode {
     public void loop() {
         drive.update(telemetry);           // pinpoint once + turret tracking, every loop
         Pozitie.setMmDeg(drive.getX(), drive.getY(), drive.getHeading());   // hand pose to teleop
-        if (state != State.SHOOT && state != State.DONE) {
-            intake.setPower(1);   // moving + parked: always on
-        } else if (state == State.DONE) {
-            intake.setPower(0);
-        }
         switch (state) {
             case SHOOT:
                 if (drive.shootFor(SHOOT_MS, telemetry)) {
@@ -102,6 +97,7 @@ public abstract class AutoTrasParcare extends OpMode {
                 break;
 
             case GO_LINE:
+                intake.setPower(1);
                 if (go(heading_go_line, x_go_line, y_go_line)) {
                     drive.resetMove();
                     drive.stop();
@@ -148,6 +144,7 @@ public abstract class AutoTrasParcare extends OpMode {
                 break;
 
             case ROTATE_LINE:
+                intake.setPower(0);
                 if (go(heading_rotate_line, x_rotate_line, y_rotate_line)) {
                     drive.resetMove();
                     drive.stop();

@@ -342,6 +342,7 @@ public class AutoHelper {
         refreshPose();
         poseFresh = true;
         updateTurret(t);
+        fly.update();                          // flywheel control every loop (pre-spin works too)
     }
 
     private void ensurePose() {
