@@ -1,6 +1,8 @@
-package org.firstinspires.ftc.teamcode.auto;
+package org.firstinspires.ftc.teamcode.auto.red;
 
 import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
+
+import org.firstinspires.ftc.teamcode.auto.AutoTrasParcare;
 
 @Autonomous(name = "auto tras parcare RED")
 public class AutoTrasParcareRed extends AutoTrasParcare {
