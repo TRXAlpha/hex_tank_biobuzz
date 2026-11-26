@@ -3,25 +3,15 @@ package org.firstinspires.ftc.teamcode.auto;
 import com.acmerobotics.dashboard.FtcDashboard;
 import com.acmerobotics.dashboard.config.Config;
 import com.acmerobotics.dashboard.telemetry.MultipleTelemetry;
+import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.util.ElapsedTime;
 
-import org.firstinspires.ftc.teamcode.auto.helpere.AutoHelper;
+import org.firstinspires.ftc.teamcode.auto.helpere.AutoHelperTilted;
 
-/**
- * Wait for tags, shoot, drive. RED values below; BLUE mirrors them (y -> -y, heading -> -heading).
- * Run AutoTrasTiltJosRed or AutoTrasTiltJosBlue (this class is shared code, not an OpMode by itself).
- * Uses AutoHelper.setup() with its own values: far CELL, turret forward in INIT,
- * feed only on live tags, flywheel 1200 (the old AutoHelperTilted values).
- */
 @Config
-public abstract class AutoTrasTiltJos extends OpMode {
-
-    // ---------- values passed to AutoHelper.setup() ----------
-    public static int RED_TAG = 30, BLUE_TAG = 42;   // far CELL: red / blue
-    public static double V_INIT = 0.663;             // turret forward in INIT
-    public static boolean FEED_NEEDS_TAGS = true;    // feed only on live tags
-    public static double FLY_TARGET = 1200;          // ticks/s
+@Autonomous(name = "auto tras tilt jos")
+public class AutoTrasTiltJos extends OpMode {
 
     // ---------- timing ----------
     public static double TAG_TIMEOUT_S = 20;   // no tags by then -> park
@@ -42,15 +32,7 @@ public abstract class AutoTrasTiltJos extends OpMode {
 
     private enum State {WAIT_TAGS, SHOOT, GO_FIRST, GO_FINAL, PARK, DONE}
 
-    private AutoHelper drive;
-
-    /** true = blue alliance (mirror the path). */
-    protected abstract boolean blue();
-
-    /** lap() with the alliance mirror applied. */
-    private boolean go(double heading, double x, double y) {
-        return blue() ? drive.lap(-heading, x, -y, telemetry) : drive.lap(heading, x, y, telemetry);
-    }
+    private AutoHelperTilted drive;
     private State state = State.WAIT_TAGS;
     private final ElapsedTime runtime = new ElapsedTime();
     private final ElapsedTime statetimer = new ElapsedTime();
@@ -59,8 +41,7 @@ public abstract class AutoTrasTiltJos extends OpMode {
     public void init() {
         telemetry = new MultipleTelemetry(telemetry, FtcDashboard.getInstance().getTelemetry());
         // fromHardwareMap() already calls resetPosAndIMU()
-        drive = AutoHelper.fromHardwareMap(hardwareMap, "stanga", "dreapta", "pinpoint", -44.3, -6.6);
-        drive.setup(blue() ? BLUE_TAG : RED_TAG, V_INIT, FEED_NEEDS_TAGS, FLY_TARGET);
+        drive = AutoHelperTilted.fromHardwareMap(hardwareMap, "stanga", "dreapta", "pinpoint", -44.3, -6.6);
     }
 
     @Override
@@ -84,7 +65,7 @@ public abstract class AutoTrasTiltJos extends OpMode {
 
         switch (state) {
             case WAIT_TAGS:
-                drive.setFlywheel(FLY_TARGET);   // pre-spin while waiting
+                drive.setFlywheel(AutoHelperTilted.FLY_TARGET);   // pre-spin while waiting
                 if (drive.tagsSeen()) {
                     statetimer.reset();
                     state = State.SHOOT;
@@ -105,7 +86,7 @@ public abstract class AutoTrasTiltJos extends OpMode {
                 break;
 
             case GO_FIRST:
-                if (go(heading_first, x_first, y_first)) {
+                if (drive.lap(heading_first, x_first, y_first, telemetry)) {
                     drive.resetMove();
                     drive.stop();
                     statetimer.reset();
@@ -114,7 +95,7 @@ public abstract class AutoTrasTiltJos extends OpMode {
                 break;
 
             case GO_FINAL:
-                if (go(heading_final, x_final, y_final)) {
+                if (drive.lap(heading_final, x_final, y_final, telemetry)) {
                     drive.resetMove();
                     drive.stop();
                     statetimer.reset();
@@ -123,7 +104,7 @@ public abstract class AutoTrasTiltJos extends OpMode {
                 break;
 
             case PARK:
-                if (go(heading_park, x_park, y_park)) {
+                if (drive.lap(heading_park, x_park, y_park, telemetry)) {
                     drive.resetMove();
                     drive.stop();
                     statetimer.reset();
@@ -136,7 +117,6 @@ public abstract class AutoTrasTiltJos extends OpMode {
                 break;
         }
 
-        telemetry.addData("alliance", blue() ? "BLUE (mirrored)" : "RED");
         telemetry.addData("state", state);
         telemetry.addData("tags seen / visible", "%b / %b", drive.tagsSeen(), drive.tagsVisible());
         telemetry.addData("runtime", "%.1f", runtime.seconds());

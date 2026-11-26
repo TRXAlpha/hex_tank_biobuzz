@@ -317,7 +317,7 @@ public class AutoHelper {
      *   vInit          turret pot V in INIT: 1.03 = side, 0.663 = forward
      *   feedNeedsTags  true = feed only while tags are seen live ("Tilted" behaviour)
      *   flyTarget      flywheel ticks/s (used when FLY_FROM_DISTANCE = false)
-     * Example (AutoTrasTiltJos red):  drive.setup(30, 0.663, true, 1200);
+     * Example, behave like AutoHelperTilted:  drive.setup(30, 0.663, true, 1300);
      */
     public AutoHelper setup(int firstTag, double vInit, boolean feedNeedsTags, double flyTarget) {
         FIRST_TAG = firstTag;
@@ -342,7 +342,6 @@ public class AutoHelper {
         refreshPose();
         poseFresh = true;
         updateTurret(t);
-        fly.update();                          // flywheel control every loop (pre-spin works too)
     }
 
     private void ensurePose() {
