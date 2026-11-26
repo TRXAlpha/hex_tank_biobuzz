@@ -139,7 +139,7 @@ public class AutoHelper {
     // Flywheel speed comes from Flywheel's distance table (tuner) using the hive distance.
     // FLY_TARGET is only used if there is no hive center yet.
     public static boolean FLY_FROM_DISTANCE = false;   // OFF until the distance is verified
-    public static double FLY_TARGET = 1300;
+    public static double FLY_TARGET = 1120;
     public static double HEADING_DEADBAND = 0.4;
     public static double HEADING_KD = 0.002;
     public static double HEADING_KP = 0.55;

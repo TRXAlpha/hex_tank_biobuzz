@@ -1,6 +1,7 @@
 package org.firstinspires.ftc.teamcode.tuning;
 
 import com.acmerobotics.dashboard.FtcDashboard;
+import com.acmerobotics.dashboard.config.Config;
 import com.acmerobotics.dashboard.telemetry.MultipleTelemetry;
 import com.qualcomm.hardware.lynx.LynxModule;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
@@ -27,6 +28,7 @@ import org.firstinspires.ftc.teamcode.Flywheel;
  *
  * Other:  hold SQUARE = unjam (intake + stagiu reverse).  SHARE = delete point at this distance.
  */
+@Config
 @TeleOp(name = "Flywheel Tuner", group = "tuning")
 public class FlywheelTuner extends OpMode {
 
@@ -38,7 +40,7 @@ public class FlywheelTuner extends OpMode {
     private DcMotor stagiu, intake;
 
     private boolean fileFound, calibratedNow;
-    private double distCm = 150, speed = 1200;
+    public static double distCm = 150, speed = 1120;
     private String msg = "";
 
     // calibration state
@@ -99,8 +101,8 @@ public class FlywheelTuner extends OpMode {
 
         // ---------- buttons ----------
         if (pressed(gamepad1.cross, pCross)) fw.setOn(!fw.isOn());
-        if (pressed(gamepad1.dpad_up, pUp))       speed += 25;
-        if (pressed(gamepad1.dpad_down, pDown))   speed -= 25;
+        if (pressed(gamepad1.dpad_up, pUp))       speed += 5;
+        if (pressed(gamepad1.dpad_down, pDown))   speed -= 5;
         if (pressed(gamepad1.right_bumper, pR1))  speed += 100;
         if (pressed(gamepad1.left_bumper, pL1))   speed -= 100;
         if (pressed(gamepad1.dpad_right, pRight)) changeDist(+10);
