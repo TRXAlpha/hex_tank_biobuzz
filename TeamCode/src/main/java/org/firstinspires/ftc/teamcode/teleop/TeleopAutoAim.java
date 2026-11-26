@@ -5,7 +5,6 @@ import com.acmerobotics.dashboard.config.Config;
 import com.acmerobotics.dashboard.telemetry.MultipleTelemetry;
 import com.qualcomm.hardware.gobilda.GoBildaPinpointDriver;
 import com.qualcomm.hardware.limelightvision.LLResult;
-import com.qualcomm.hardware.limelightvision.LLResultTypes;
 import com.qualcomm.hardware.limelightvision.Limelight3A;
 import com.qualcomm.hardware.lynx.LynxModule;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
@@ -18,56 +17,47 @@ import com.qualcomm.robotcore.util.ElapsedTime;
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.Pose2D;
-import org.firstinspires.ftc.robotcore.external.navigation.Position;
 import org.firstinspires.ftc.robotcore.external.navigation.UnnormalizedAngleUnit;
+import org.firstinspires.ftc.teamcode.Calib;
+import org.firstinspires.ftc.teamcode.CellVision;
 import org.firstinspires.ftc.teamcode.Flywheel;
+import org.firstinspires.ftc.teamcode.Power;
+
+import java.util.List;
 
 /*
- * TELEOP AUTO-AIM. The turret always aims and the speed follows the distance. The driver drives, collects and shoots.
+ * TELEOP AUTO-AIM. One fixed flywheel speed (Calib.SHOT_SPEED). The turret aims by itself or holds a fixed spot.
  *
  * DRIVER (PS5):
- *   Left stick Y + right stick X   drive
+ *   Left stick Y + right stick X   drive (battery limiter: Power)
  *   L1 hold        intake
- *   R2 hold        SHOOT: feeds whenever the flywheel is at speed and the turret is steady on target
- *                  (no aim yet -> feeds at speed). Driver decides distance.
- *   Triangle       auto-fire ON/OFF (starts OFF). ON = shoots by itself when tags + aim + speed + range are OK
+ *   R2 hold        SHOOT: feeds when the flywheel is at speed and the turret is steady
+ *                  (AIM: on target, or no target yet / FIXED: at its spot)
+ *   Triangle       auto-fire ON/OFF (starts OFF). Works only in AIM mode: 2+ tags + steady aim + speed
+ *   Touchpad       AIM <-> FIXED. AIM -> FIXED goes to FRONT
+ *   D-pad          FIXED spot: UP = FRONT, DOWN = BACK, LEFT = LEFT, RIGHT = RIGHT (auto init spot)
  *   Circle hold    unjam (intake + stagiu reverse)
  *   Square         flywheel on/off (on at start)
- *   Share          forget the CELL and scan again (if the turret aims at the wrong place)
+ *   Share          forget the CELL and scan again
  * INIT: D-pad LEFT = RED, D-pad RIGHT = BLUE.
  *
- * HOW IT AIMS, every new camera frame:
- *   1. Keep only our alliance's tags. Use the CELL with the most tags in view.
- *   2. Each tag -> point on the floor, relative to the camera (from tx, ty and range).
- *   3. CELL center = average of (tag point - tag offset along the row). Works with 1 to 4 tags.
- *   4. Save the center as a FIELD point (x, y) with the Pinpoint odometry pose from when the picture was taken.
- * Between frames, and when the tags are lost, the turret aims at that point using the odometry pose.
- * Every new frame re-measures the point, so odometry drift is corrected while tags are in view.
- * Before the first sighting the turret sweeps its whole range to find the tags.
- * The distance turret -> CELL center (from odometry) picks the flywheel speed from the Flywheel table.
- *
- * BEFORE THE MEET: Limelight pipeline tag size = 82.55 mm (3.25 in, game manual 9.9).
- * Then check: robot 130 cm from the tags (tape) -> screen "dist" must read ~130.
+ * AIM mode, every new camera frame: our CELL center (CellVision) -> FIELD point with the Pinpoint pose from
+ * when the picture was taken. Between frames / without tags the turret aims at that point with odometry.
+ * Before the first sighting the turret sweeps its range. All physical values come from Calib (ROBOT CALIBRATION).
  */
 @Config
 @TeleOp(name = "TELEOP AUTO-AIM", group = "turela")
 public class TeleopAutoAim extends OpMode {
 
-    // ---------- camera (on the turret) ----------
+    // ---------- vision ----------
     public static int PIPELINE = 2;
-    public static double CAM_PITCH_DEG = 25;     // lens up from horizontal
-    public static double CAM_FWD_MM = 30;        // lens ahead of the turret pivot
     public static double SCAN_DEG_S = 60;        // turret sweep speed while looking for the first tags
-    public static double DIST_SCALE = 1.0;       // tape / screen dist. Only if the tag size can't be fixed.
-    public static double TAG_OUTER_MM = 165.1, TAG_INNER_MM = 69.85;   // tag centers from cluster center
     public static double LOST_MS = 300;          // tags count as "seen" for this long after the last frame
     public static double CENTER_ALPHA = 0.5;     // CELL point smoothing (1 = none)
     public static double JUMP_MM = 400;          // new point this far away = replace, do not smooth
 
-    // ---------- turret (pot), same values as teleopPerefect ----------
-    public static double V_FRONT = 0.663, V_CENTER = 1.030, V_BACK = 1.500;
-    public static double V_LIMIT_MIN = 0.5, V_LIMIT_MAX = 1.75;
-    public static boolean LATERAL_IS_LEFT = false, MOTOR_REVERSED = false;
+    // ---------- turret control ----------
+    public static boolean MOTOR_REVERSED = false;
     public static double MAX_POWER = 1, kP = 0.006, kD = 0.0002, kS = 0.2, kV = 0.0015;
     public static double TOLERANCE_DEG = 1.5, FILTER_ALPHA = 0.4;
 
@@ -76,28 +66,35 @@ public class TeleopAutoAim extends OpMode {
     public static double AIM_SETTLE_MS = 100;    // must stay on target this long before a shot
     public static int FIRE_MIN_TAGS = 2;
     public static boolean AUTO_FIRE_AT_START = false;   // Triangle toggles it during the match
-    public static boolean SPEED_FROM_DISTANCE = true;   // false = always FIXED_SPEED, no distance check
-    public static double FIXED_SPEED = 1300;
 
     private DcMotor stanga, dreapta, turret, intake, stagiu;
     private AnalogInput pot;
     private Limelight3A ll;
     private GoBildaPinpointDriver odo;
     private Flywheel fw;
-    private boolean red = false, flyFile, pSquare, pTriangle, autoFire;
+    private Power power;
+    private boolean red = false, autoFire, flyWasOn;
     private double scanDir = 1, onSince = -1;
+
+    // turret mode
+    private boolean fixed = false;
+    private double fixedV;
+    private String fixedName = "";
 
     // aim
     private boolean haveAim = false;
     private double fx, fy;                // mm, CELL center on the field (odometry frame)
     private double dist = 0;              // cm, turret pivot -> CELL center
-    private double camDist = 0;           // cm, same, from the last camera frame only (debug)
+    private double camDist = 0;           // cm, same, from the last camera frame only
     private int tags = 0;
     private double lastSeen = -1e9, lastStale = 1e9;
 
     // turret
     private double v, deg, rawDeg, lastDeg, target, minDeg, maxDeg;
     private boolean potOk = true, saturated = false;
+
+    // buttons (edge detect): touchpad, up, down, left, right, square, triangle
+    private final boolean[] prev = new boolean[7];
 
     // short history (time, pose, turret) so a camera frame uses the pose from when it was taken
     private static final int H = 64;
@@ -114,6 +111,7 @@ public class TeleopAutoAim extends OpMode {
         for (LynxModule hub : hardwareMap.getAll(LynxModule.class)) {
             hub.setBulkCachingMode(LynxModule.BulkCachingMode.AUTO);
         }
+        Calib.load();
         stanga = hardwareMap.dcMotor.get("stanga");
         dreapta = hardwareMap.dcMotor.get("dreapta");
         dreapta.setDirection(DcMotorSimple.Direction.REVERSE);
@@ -140,24 +138,25 @@ public class TeleopAutoAim extends OpMode {
                 GoBildaPinpointDriver.EncoderDirection.FORWARD);
         odo.resetPosAndIMU();                // pose = 0,0,0 at INIT (keep the robot still)
 
-        flyFile = Flywheel.load();
         fw = new Flywheel(hardwareMap);      // nothing moves in INIT
+        power = new Power(hardwareMap);
 
-        double a = turretDeg(V_LIMIT_MIN), b = turretDeg(V_LIMIT_MAX);
+        double a = Calib.turretDeg(Calib.V_LIMIT_MIN), b = Calib.turretDeg(Calib.V_LIMIT_MAX);
         minDeg = Math.min(a, b);
         maxDeg = Math.max(a, b);
         v = pot.getVoltage();
-        deg = rawDeg = lastDeg = target = turretDeg(v);
+        deg = rawDeg = lastDeg = target = Calib.turretDeg(v);
     }
 
     @Override
     public void init_loop() {
         if (gamepad1.dpad_left) red = true;
         if (gamepad1.dpad_right) red = false;
+        double volts = power.read();
         telemetry.addData("ALLIANCE (D-pad L = RED, R = BLUE)", red ? "RED" : "BLUE");
-        telemetry.addData("Flywheel values", flyFile ? "from tuner" : "BUILT-IN table");
-        telemetry.addData("Battery", "%.2f V%s", fw.getVolts(), fw.getVolts() < 12.3 ? "  <- CHANGE IT" : "");
-        telemetry.addLine("Limelight tag size must be 82.55 mm!");
+        telemetry.addData("Calibration", Calib.fromFile ? "loaded" : "DEFAULTS - run ROBOT CALIBRATION");
+        telemetry.addData("Shot speed", "%.0f", Calib.SHOT_SPEED);
+        telemetry.addData("Battery", "%.2f V%s", volts, volts < 12.3 ? "  <- CHANGE IT" : "");
         telemetry.update();
     }
 
@@ -165,6 +164,7 @@ public class TeleopAutoAim extends OpMode {
     public void start() {
         fw.setOn(true);
         autoFire = AUTO_FIRE_AT_START;
+        readButtons();                       // buttons held from INIT do not count as presses
         clock.reset();
         lastMs = 0;
     }
@@ -174,12 +174,15 @@ public class TeleopAutoAim extends OpMode {
         double now = clock.milliseconds(), dt = (now - lastMs) / 1000.0;
         lastMs = now;
         if (dt <= 0) return;
+        double volts = power.read();
+        boolean[] pr = readButtons();
 
-        // ---------- drive ----------
+        // ---------- drive (through the battery limiter) ----------
         double fwd = gamepad1.left_stick_y, turn = -gamepad1.right_stick_x;
         double m = Math.max(1, Math.abs(fwd) + Math.abs(turn));
-        stanga.setPower((fwd + turn) / m);
-        dreapta.setPower((fwd - turn) / m);
+        double[] d = power.drive((fwd + turn) / m, (fwd - turn) / m, dt);
+        stanga.setPower(d[0]);
+        dreapta.setPower(d[1]);
 
         // ---------- sensors ----------
         odo.update();
@@ -202,11 +205,22 @@ public class TeleopAutoAim extends OpMode {
             }
         }
         if (now - lastSeen > LOST_MS) tags = 0;
+        if (haveAim) dist = Math.hypot(fx - x, fy - y) / 10.0;
 
-        // ---------- turret: aim at the CELL point with odometry ----------
+        // ---------- turret mode: touchpad AIM <-> FIXED, D-pad = fixed spot ----------
+        if (pr[0]) { if (fixed) fixed = false; else setFixed("FRONT", Calib.V_FRONT); }
+        if (pr[1]) setFixed("FRONT", Calib.V_FRONT);
+        if (pr[2]) setFixed("BACK", Calib.V_BACK);
+        if (pr[3]) setFixed("LEFT", Calib.V_LEFT);
+        if (pr[4]) setFixed("RIGHT", Calib.V_RIGHT);
+        if (gamepad1.share) { haveAim = false; tags = 0; }    // forget -> scan again (AIM mode)
+
+        // ---------- turret target ----------
         double tv = 0;
-        if (haveAim) {
-            dist = Math.hypot(fx - x, fy - y) / 10.0;
+        if (fixed) {
+            target = Math.max(minDeg, Math.min(maxDeg, Calib.turretDeg(fixedV)));
+            saturated = false;
+        } else if (haveAim) {
             double want = AngleUnit.normalizeDegrees(Math.toDegrees(Math.atan2(fy - y, fx - x) - head));
             target = reachable(want);
             saturated = Math.abs(AngleUnit.normalizeDegrees(want - target)) > 0.5;
@@ -218,35 +232,34 @@ public class TeleopAutoAim extends OpMode {
             saturated = false;
             tv = scanDir * SCAN_DEG_S;
         }
-        if (gamepad1.share) { haveAim = false; tags = 0; }    // forget -> scan again
         driveTurret(dt, tv);
 
-        // ---------- flywheel ----------
-        if (gamepad1.square && !pSquare) fw.setOn(!fw.isOn());
-        pSquare = gamepad1.square;
-        if (gamepad1.triangle && !pTriangle) autoFire = !autoFire;
-        pTriangle = gamepad1.triangle;
+        // ---------- flywheel: one fixed speed ----------
+        if (pr[5]) fw.setOn(!fw.isOn());
+        if (pr[6]) autoFire = !autoFire;
         boolean hold = gamepad1.right_trigger > 0.5;
         if (hold) fw.setOn(true);
-        fw.setTarget(SPEED_FROM_DISTANCE && haveAim ? Flywheel.speedForDistance(dist) : FIXED_SPEED);
-        fw.update();
+        if (fw.isOn() && !flyWasOn && fw.getVelocity() < 100) power.learnFromFlywheelStart();   // battery check
+        flyWasOn = fw.isOn();
+        fw.setTarget(Calib.SHOT_SPEED);
+        fw.update(volts);
 
-        // ---------- auto-fire decision ----------
-        boolean onTarget = haveAim && !saturated && Math.abs(target - deg) <= AIM_TOL_DEG;
+        // ---------- shoot decision ----------
+        boolean onTarget = (fixed || haveAim) && !saturated && Math.abs(target - deg) <= AIM_TOL_DEG;
         if (!onTarget) onSince = -1; else if (onSince < 0) onSince = now;
         boolean steady = onTarget && now - onSince >= AIM_SETTLE_MS;
         boolean ok = false;
         String why;
-        if (!fw.isOn())                                                why = "flywheel OFF (Square)";
-        else if (!haveAim)                                             why = "SCANNING for tags";
-        else if (tags < FIRE_MIN_TAGS)                                 why = "looking for tags";
-        else if (SPEED_FROM_DISTANCE && dist < Flywheel.MIN_SHOT_CM)   why = "TOO CLOSE - back up";
-        else if (SPEED_FROM_DISTANCE && dist > Flywheel.MAX_SHOT_CM)   why = "TOO FAR - get closer";
-        else if (saturated)                                            why = "turret at limit - turn robot";
-        else if (!steady)                                              why = "aiming";
-        else if (!fw.isAtSpeed())                                      why = "speeding up";
+        if (!fw.isOn())                    why = "flywheel OFF (Square)";
+        else if (fixed)                    why = "FIXED " + fixedName + ": auto-fire off, hold R2";
+        else if (!haveAim)                 why = "SCANNING for tags";
+        else if (tags < FIRE_MIN_TAGS)     why = "looking for tags";
+        else if (saturated)                why = "turret at limit - turn robot";
+        else if (!steady)                  why = "aiming";
+        else if (!fw.isAtSpeed())          why = "speeding up";
         else { why = "FIRE"; ok = true; }
-        boolean feed = fw.isAtSpeed() && ((autoFire && ok) || (hold && (!haveAim || steady)));
+        boolean r2Ready = fixed ? steady : (!haveAim || steady);
+        boolean feed = fw.isAtSpeed() && ((autoFire && !fixed && ok) || (hold && r2Ready));
 
         // ---------- intake + stagiu (one write each per loop) ----------
         if (gamepad1.circle)  { intake.setPower(-1); stagiu.setPower(-1); }
@@ -254,77 +267,52 @@ public class TeleopAutoAim extends OpMode {
         else                  { intake.setPower(gamepad1.left_bumper ? 1 : 0); stagiu.setPower(0); }
 
         // ---------- screen ----------
-        telemetry.addData("AUTO-FIRE (Triangle)", autoFire ? "ON" : "OFF - hold R2 to shoot");
-        telemetry.addData("SHOOT", hold ? (feed ? "R2: FIRING" : "R2: waiting for " + (fw.isAtSpeed() ? "aim" : "speed")) : why);
-        telemetry.addData("Tags / dist", "%d / %.0f cm", tags, dist);
-        telemetry.addData("Camera dist (last frame)", "%.0f cm", camDist);
-        telemetry.addData("Odometry x / y / heading", "%.0f / %.0f mm / %.0f deg", x, y, Math.toDegrees(head));
+        telemetry.addData("TURRET (touchpad)", fixed ? "FIXED " + fixedName : (haveAim ? "AIM" : "AIM - scanning"));
+        telemetry.addData("AUTO-FIRE (Triangle)", autoFire ? (fixed ? "ON (only in AIM)" : "ON") : "OFF - hold R2");
+        telemetry.addData("SHOOT", hold ? (feed ? "R2: FIRING" : "R2: waiting for " + (fw.isAtSpeed() ? "turret" : "speed")) : why);
         telemetry.addData("Speed", "%.0f / %.0f", fw.getVelocity(), fw.getTarget());
+        telemetry.addData("Tags / dist (cam)", "%d / %.0f cm (%.0f)", tags, dist, camDist);
         telemetry.addData("Turret", "%.1f -> %.1f deg%s", deg, target, potOk ? "" : "  POT ERROR");
-        telemetry.addData("Battery", "%.2f V%s", fw.getVolts(), fw.getVolts() < 10 ? "  LOW" : "");
+        telemetry.addData("Battery / R / drive cut", "%.2f V / %.0f mOhm / %.0f %%%s", volts, power.ohms() * 1000,
+                power.cut() * 100, volts < Power.V_FLOOR ? "  LOW" : "");
+        telemetry.addData("Odometry x / y / heading", "%.0f / %.0f mm / %.0f deg", x, y, Math.toDegrees(head));
         telemetry.addData("Loop", "%.0f ms", dt * 1000);
         telemetry.update();
+    }
+
+    private void setFixed(String name, double volts) {
+        fixed = true;
+        fixedName = name;
+        fixedV = volts;
+    }
+
+    /** Edge detect: {touchpad, up, down, left, right, square, triangle} pressed this loop. */
+    private boolean[] readButtons() {
+        boolean[] now = {gamepad1.touchpad, gamepad1.dpad_up, gamepad1.dpad_down, gamepad1.dpad_left,
+                gamepad1.dpad_right, gamepad1.square, gamepad1.triangle};
+        boolean[] e = new boolean[now.length];
+        for (int i = 0; i < now.length; i++) { e[i] = now[i] && !prev[i]; prev[i] = now[i]; }
+        return e;
     }
 
     // ===================== vision =====================
 
     /** One camera frame -> CELL center -> field point (fx, fy). tFrame = when the picture was taken. */
     private void see(LLResult r, double tFrame) {
-        int j = (hI - 1 + H) % H;                                   // newest history entry
+        List<CellVision.Tag> t = CellVision.tags(r, red ? new int[]{30, 34} : new int[]{38, 42});  // our 2 CELLS
+        double[] c = CellVision.center(t, Calib.CAM_PITCH_DEG, Calib.DIST_SCALE);
+        if (c == null) return;
+        int j = (hI - 1 + H) % H;                                   // history entry at frame time
         for (int s = 0; s < H - 1 && hT[j] > tFrame; s++) j = (j - 1 + H) % H;
 
-        int[] base = red ? new int[]{30, 34} : new int[]{38, 42};    // game manual 9.9: our 2 CELLS
-        double[] off = {-TAG_OUTER_MM, -TAG_INNER_MM, TAG_INNER_MM, TAG_OUTER_MM};
-        double[][] px = new double[2][4], py = new double[2][4];
-        boolean[][] has = new boolean[2][4];
-        int[] n = new int[2];
-
-        for (LLResultTypes.FiducialResult f : r.getFiducialResults()) {
-            int id = f.getFiducialId();
-            int c = id - base[0] >= 0 && id - base[0] < 4 ? 0 : id - base[1] >= 0 && id - base[1] < 4 ? 1 : -1;
-            if (c < 0 || has[c][id - base[c]]) continue;
-            int i = id - base[c];
-            Position p = f.getTargetPoseCameraSpace().getPosition().toUnit(DistanceUnit.MM);
-            double range = Math.sqrt(p.x * p.x + p.y * p.y + p.z * p.z) * DIST_SCALE;
-            if (range < 200 || range > 6000) continue;              // bad detection
-            double horiz = range * Math.cos(Math.toRadians(CAM_PITCH_DEG + f.getTargetYDegrees()));
-            double b = -Math.toRadians(f.getTargetXDegrees());     // tx is + to the right -> + = left
-            px[c][i] = horiz * Math.cos(b);                         // forward from the lens
-            py[c][i] = horiz * Math.sin(b);                         // left of the lens
-            has[c][i] = true;
-            n[c]++;
-        }
-        int c = n[0] >= n[1] ? 0 : 1;
-        if (n[c] == 0) return;
-
-        // row direction (tag 0 -> tag 3): from the two outermost tags seen, else assume we face the row
-        int lo = -1, hi = -1;
-        for (int i = 0; i < 4; i++) if (has[c][i]) { if (lo < 0) lo = i; hi = i; }
-        double ux = 0, uy = -1;
-        if (hi > lo) {
-            ux = px[c][hi] - px[c][lo];
-            uy = py[c][hi] - py[c][lo];
-            double len = Math.hypot(ux, uy);
-            ux /= len;
-            uy /= len;
-        }
-        double cx = 0, cy = 0;
-        for (int i = 0; i < 4; i++) {
-            if (!has[c][i]) continue;
-            cx += px[c][i] - off[i] * ux;
-            cy += py[c][i] - off[i] * uy;
-        }
-        cx = cx / n[c] + CAM_FWD_MM;                                // from the turret pivot
-        cy = cy / n[c];
-
-        camDist = Math.hypot(cx, cy) / 10.0;
+        camDist = Math.hypot(c[0], c[1]) / 10.0;
         double a = hHead[j] + Math.toRadians(hPan[j]);              // turret direction on the field
-        double nx = hX[j] + cx * Math.cos(a) - cy * Math.sin(a);
-        double ny = hY[j] + cx * Math.sin(a) + cy * Math.cos(a);
+        double nx = hX[j] + c[0] * Math.cos(a) - c[1] * Math.sin(a);
+        double ny = hY[j] + c[0] * Math.sin(a) + c[1] * Math.cos(a);
         if (!haveAim || Math.hypot(nx - fx, ny - fy) > JUMP_MM) { fx = nx; fy = ny; }
         else { fx += CENTER_ALPHA * (nx - fx); fy += CENTER_ALPHA * (ny - fy); }
         haveAim = true;
-        tags = n[c];
+        tags = t.size();
         lastSeen = clock.milliseconds();
     }
 
@@ -335,8 +323,8 @@ public class TeleopAutoAim extends OpMode {
         potOk = raw > 0.03 && raw < 3.25;
         if (!potOk) return;
         v += FILTER_ALPHA * (raw - v);
-        rawDeg = turretDeg(raw);     // unfiltered -> vision history
-        deg = turretDeg(v);          // filtered -> control
+        rawDeg = Calib.turretDeg(raw);     // unfiltered -> vision history
+        deg = Calib.turretDeg(v);          // filtered -> control
     }
 
     private void driveTurret(double dt, double tv) {
@@ -345,9 +333,8 @@ public class TeleopAutoAim extends OpMode {
         lastDeg = deg;
         double p = kV * tv;
         if (Math.abs(err) > TOLERANCE_DEG) p += kP * err + kD * (tv - vel) + Math.copySign(kS, err);
-        p = Math.max(-MAX_POWER, Math.min(MAX_POWER, p));
-        p = LATERAL_IS_LEFT ? p : -p;                               // deg space -> "+ raises pot V"
-        if ((v >= V_LIMIT_MAX && p > 0) || (v <= V_LIMIT_MIN && p < 0) || !potOk) p = 0;
+        p = -Math.max(-MAX_POWER, Math.min(MAX_POWER, p));          // + deg (left) = lower pot V
+        if ((v >= Calib.V_LIMIT_MAX && p > 0) || (v <= Calib.V_LIMIT_MIN && p < 0) || !potOk) p = 0;
         turret.setPower(p);
     }
 
@@ -360,22 +347,6 @@ public class TeleopAutoAim extends OpMode {
             if (e < bestErr) { bestErr = e; best = Math.max(minDeg, Math.min(maxDeg, a)); }
         }
         return best;
-    }
-
-    /** Pot voltage -> turret deg, robot frame (0 front, CCW +). */
-    private double turretDeg(double volts) {
-        double p = potAngleDeg(volts), pC = potAngleDeg(V_CENTER);
-        double old = p <= pC ? (p - pC) / (pC - potAngleDeg(V_BACK)) * 90.0
-                             : (p - pC) / (potAngleDeg(V_FRONT) - pC) * 90.0;
-        double d = 90.0 - old;
-        return LATERAL_IS_LEFT ? d : -d;
-    }
-
-    /** REV pot on the hub (not linear): 3.3 V -> 0, 0 V -> 270 pot deg. */
-    private static double potAngleDeg(double volts) {
-        if (volts < 1e-3) return 270.0;
-        double b = 270.0 * volts + 445.5, c = 120285.0 - 36450.0 * volts;
-        return (b - Math.sqrt(b * b - 4.0 * volts * c)) / (2.0 * volts);
     }
 
     @Override
