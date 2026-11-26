@@ -1,1 +1,1 @@
-package com.qualcomm.robotcore.hardware; public class Gamepad { public boolean triangle,cross,circle,square,share,dpad_up,dpad_down,dpad_left,dpad_right,left_bumper,right_bumper; public float right_trigger,left_trigger,left_stick_y,right_stick_x; }
+package com.qualcomm.robotcore.hardware; public class Gamepad { public boolean triangle,cross,circle,square,share,dpad_up,dpad_down,dpad_left,dpad_right,left_bumper,right_bumper; public boolean touchpad; public float right_trigger,left_trigger,left_stick_y,left_stick_x,right_stick_x; }

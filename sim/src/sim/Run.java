@@ -1,29 +1,32 @@
 package sim;
 
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
+import com.qualcomm.robotcore.hardware.Gamepad;
+import org.firstinspires.ftc.teamcode.Calib;
 import org.firstinspires.ftc.teamcode.Flywheel;
+import org.firstinspires.ftc.teamcode.Power;
 import org.firstinspires.ftc.teamcode.teleop.TeleopAutoAim;
-import org.firstinspires.ftc.teamcode.tuning.FlywheelTuner;
+import org.firstinspires.ftc.teamcode.tuning.RobotCalibration;
+
+import java.util.*;
 import java.util.function.*;
 
+/** Runs the REAL calibration + teleop code on the simulated robot (World) and prints checks. */
 public class Run {
     static final double LOOP = 0.020, DT = 0.001;
     interface Script { void at(double t, OpMode op); }
+    static int fails = 0;
 
-    static double fwTarget(OpMode op){
-        try { java.lang.reflect.Field f = op.getClass().getDeclaredField("fw"); f.setAccessible(true);
-              return ((Flywheel) f.get(op)).getTarget(); } catch (Exception e) { return 0; }
-    }
-    /** Run an OpMode: init, 0.5 s init_loop, start, loop until tEnd. Script sets gamepad / world each loop. */
-    static OpMode run(Supplier<OpMode> mk, double tEnd, Script sc, Consumer<OpMode> each){
+    static OpMode run(Supplier<OpMode> mk, double tEnd, Script sc, Consumer<OpMode> each) {
         OpMode op = mk.get();
         op.init();
-        for (int i = 0; i < 25; i++) { sc.at(World.t, op); op.init_loop(); physics(); }
+        for (int i = 0; i < 25; i++) { sc.at(-1, op); op.init_loop(); physics(); }
         op.start();
         double t0 = World.t;
+        run0 = t0;
         while (World.t - t0 < tEnd) {
             sc.at(World.t - t0, op);
-            World.lastTarget = fwTarget(op);
+            World.lastTarget = Calib.SHOT_SPEED;
             op.loop();
             if (each != null) each.accept(op);
             physics();
@@ -31,145 +34,234 @@ public class Run {
         op.stop();
         return op;
     }
-    static void physics(){ for (int i = 0; i < LOOP/DT; i++) { World.step(DT); World.deliver(); } }
+    static void physics() { for (int i = 0; i < LOOP / DT; i++) { World.step(DT); World.deliver(); } }
+    static String tl(String k) { String v = World.tele.last.get(k); return v == null ? "-" : v; }
 
-    static String tl(String k){ String v = World.tele.last.get(k); return v == null ? "-" : v; }
+    /** Button pressed for one loop at each listed time (s). */
+    static boolean at(double t, double... times) { for (double x : times) if (t >= x && t < x + LOOP) return true; return false; }
 
-    // stats
-    static double maxAbs, sum; static int n;
-    static void st0(){ maxAbs = 0; sum = 0; n = 0; }
-    static void st(double e){ maxAbs = Math.max(maxAbs, Math.abs(e)); sum += Math.abs(e); n++; }
+    static void check(String what, boolean ok) { System.out.printf("      %s %s%n", ok ? "PASS" : "FAIL", what); if (!ok) fails++; }
 
-    static TeleopAutoAim aim(){ return new TeleopAutoAim(); }
-    static void place(double xCm, double yCm, double headDeg, double potV){
-        World.x = xCm*10; World.y = yCm*10; World.h = Math.toRadians(headDeg); World.potV = potV; }
+    static void place(double xCm, double yCm, double headDeg, double potV) {
+        World.x = xCm * 10; World.y = yCm * 10; World.h = Math.toRadians(headDeg); World.potV = potV; }
 
-    public static void main(String[] a){
-        TeleopAutoAim.AUTO_FIRE_AT_START = true;   // most scenarios test auto-fire
-        // reach of the turret
-        System.out.printf("Turret reach: V 0.5 -> %.0f deg, V 1.75 -> %.0f deg (0 = front, + = left)%n", World.turretDeg(0.5), World.turretDeg(1.75));
+    static void calibDefaults() {
+        Calib.KS = 0.05; Calib.KV = 0.00043; Calib.KP = 0.003; Calib.SHOT_SPEED = 1120;
+        Calib.V_FRONT = 0.663; Calib.V_RIGHT = 1.030; Calib.V_BACK = 1.500; Calib.V_LEFT = 0.520;
+        Calib.BAT_R = 0.06; Calib.I_DRIVE_FULL = 30; Calib.DRIVE_TAU = 0.15; Calib.I_FLY_START = 15; Calib.CAM_PITCH_DEG = 25; Calib.DIST_SCALE = 1.0;
+    }
 
-        // ===== 1. Flywheel Tuner calibration =====
-        World.reset(); World.VOC = 12.6; World.RBAT = 0.04;
-        run(FlywheelTuner::new, 18, (t, op) -> World.pad.triangle = t > 0.2 && t < 0.4, null);
-        double ksT = World.FLY_FRIC_V/12, kvT = 1/(World.FLY_VPV*12);
-        System.out.printf("%n[1] TUNER CALIBRATION: KS %.4f (true %.4f)  KV %.7f (true %.7f)  -> %s%n",
-                Flywheel.KS, ksT, Flywheel.KV, kvT, World.tele.lines);
+    public static void main(String[] a) {
+        // ===================== A. ROBOT CALIBRATION =====================
+        System.out.println("=== A. ROBOT CALIBRATION (true robot: battery 0.05 ohm, camera pitch 32, tag size wrong x1.4) ===");
+        World.reset(); calibDefaults(); com.qualcomm.robotcore.util.ReadWriteFile.FS.clear();
+        World.VOC = 12.8; World.RBAT = 0.05; World.CAM_PITCH_TRUE = 32; World.RANGE_SCALE = 1.4;
+        place(0, -100, 90, 0.663);                       // 100 cm from the cell, turret forward
+        // menu: sel 0 -> CROSS (KS/KV ~16 s) | DOWN, CROSS (KP) | DOWN x2, CROSS (battery) | DOWN, CROSS, CROSS (drive)
+        //       | DOWN x2, CROSS (camera: CROSS at 100 cm, teleport, CROSS at 170 cm)
+        final double[] tKp = {-1}, tBat = {-1}, tDrv = {-1}, tCam = {-1}, tTur = {-1};
+        final double[] drivePos = new double[2];
+        run(RobotCalibration::new, 95, (t, op) -> {
+            Gamepad g = World.pad;
+            g.cross = at(t, 0.5); g.dpad_down = false; g.dpad_up = false; g.dpad_left = false; g.dpad_right = false; g.left_stick_x = 0;
+            String menu = World.tele.lines.toString();
+            boolean inMenu = menu.contains("D-pad = choose");
+            if (inMenu && tKp[0] < 0 && t > 1) { tKp[0] = t; }
+            if (tKp[0] > 0) { g.dpad_down = at(t, tKp[0] + 0.1); g.cross = g.cross || at(t, tKp[0] + 0.3); }
+            if (tKp[0] > 0 && inMenu && t > tKp[0] + 1 && tBat[0] < 0) tBat[0] = t;
+            if (tBat[0] > 0) { g.dpad_down = g.dpad_down || at(t, tBat[0] + 0.1, tBat[0] + 0.3); g.cross = g.cross || at(t, tBat[0] + 0.5); }
+            if (tBat[0] > 0 && inMenu && t > tBat[0] + 1 && tDrv[0] < 0) { tDrv[0] = t; drivePos[0] = World.x; drivePos[1] = World.y; }
+            if (tDrv[0] > 0) { g.dpad_down = g.dpad_down || at(t, tDrv[0] + 0.1); g.cross = g.cross || at(t, tDrv[0] + 0.3, tDrv[0] + 0.6); }
+            if (tDrv[0] > 0 && inMenu && t > tDrv[0] + 1 && tCam[0] < 0) { tCam[0] = t; place(0, -100, 90, 0.663); World.v = 0; World.omega = 0; }
+            if (tCam[0] > 0) {
+                g.dpad_down = g.dpad_down || at(t, tCam[0] + 0.1, tCam[0] + 0.3);
+                g.cross = g.cross || at(t, tCam[0] + 0.5, tCam[0] + 1.0, tCam[0] + 3.0);
+                if (at(t, tCam[0] + 2.5)) place(0, -170, 90, 0.663);
+            }
+            if (tCam[0] > 0 && inMenu && t > tCam[0] + 4.5 && tTur[0] < 0) tTur[0] = t;
+            if (tTur[0] > 0) {                                     // turret step: UP x1 from camera = step 6
+                double s = t - tTur[0];
+                g.dpad_up = at(t, tTur[0] + 0.1);
+                g.cross = g.cross || at(t, tTur[0] + 0.3);
+                if (s > 0.5 && s < 1.2) g.left_stick_x = 1;      // move turret toward RIGHT (pot V up)
+                g.dpad_right = at(t, tTur[0] + 1.5);              // save RIGHT where it is now
+                if (s > 1.7 && s < 3.5) g.left_stick_x = 1;       // keep going toward the back
+                g.dpad_up = g.dpad_up || at(t, tTur[0] + 3.7);    // try FRONT at a high V -> must be refused
+            }
+        }, op -> {
+            String l = String.join(" | ", World.tele.lines);
+            if ((l.contains("KP saved") || l.contains("KP FAILED")) && kpMsg.length() == 0) kpMsg.append(l);
+            if (l.contains("CAMERA SAVED") || l.contains("CAMERA NOT")) { camMsg.setLength(0); camMsg.append(l); }
+            if (l.contains("BATTERY: rest") && batMsg.length() == 0) batMsg.append(l);
+            if (l.contains("DRIVE: start") && drvMsg.length() == 0) drvMsg.append(l);
+        });
+        System.out.println("   KP step:      " + after(kpMsg, "KP "));
+        System.out.println("   battery step: " + after(batMsg, "BATTERY"));
+        System.out.println("   drive step:   " + after(drvMsg, "DRIVE"));
+        System.out.println("   camera step:  " + after(camMsg, "CAMERA"));
+        String msg = String.join(" | ", World.tele.lines);
+        double ksT = World.FLY_FRIC_V / 12, kvT = 1 / (World.FLY_VPV * 12);
+        System.out.printf("   KS %.4f (true %.4f)  KV %.7f (true %.7f)  KP %.3f  shot speed %.0f%n", Calib.KS, ksT, Calib.KV, kvT, Calib.KP, Calib.SHOT_SPEED);
+        check("KS/KV within 20 % / 2 %", Math.abs(Calib.KS - ksT) < 0.2 * ksT + 0.003 && Math.abs(Calib.KV - kvT) < 0.02 * kvT);
+        check("KP step finished and saved", kpMsg.indexOf("KP saved") >= 0);
+        System.out.printf("   BAT_R %.0f mOhm (true %.0f + model)  I_FLY_START %.1f A  I_DRIVE_FULL %.1f A%n", Calib.BAT_R * 1000, World.RBAT * 1000, Calib.I_FLY_START, Calib.I_DRIVE_FULL);
+        check("battery R within 25 %", Math.abs(Calib.BAT_R - World.RBAT) < 0.25 * World.RBAT);
+        double peakT = 2 * 2 * 12.0 / 1.3;                     // both sides, 2 motors each, stall
+        System.out.printf("   drive: peak %.1f A (true stall ~%.0f A), tau %.3f s (true 0.12)%n", Calib.I_DRIVE_FULL, peakT, Calib.DRIVE_TAU);
+        check("drive peak within 25 % of stall, tau within 30 %", Math.abs(Calib.I_DRIVE_FULL - peakT) < 0.25 * peakT && Math.abs(Calib.DRIVE_TAU - 0.12) < 0.036);
+        double p130 = camCheck(130);
+        System.out.printf("   camera pitch %.1f (true 32)  scale %.3f (true 1/1.4 = %.3f)  -> reads %.1f cm at 130 cm%n", Calib.CAM_PITCH_DEG, Calib.DIST_SCALE, 1 / 1.4, p130);
+        check("camera reads 130 +/- 3 cm after calibration", Math.abs(p130 - 130) < 3);
+        System.out.printf("   turret saved F/R/B/L %.3f / %.3f / %.3f / %.3f%n", Calib.V_FRONT, Calib.V_RIGHT, Calib.V_BACK, Calib.V_LEFT);
+        check("RIGHT saved where the stick moved it, FRONT refused at a high V", Calib.V_RIGHT > 1.03 && Calib.V_FRONT == 0.663);
+        check("file robot_calib.txt written", com.qualcomm.robotcore.util.ReadWriteFile.FS.containsKey("robot_calib.txt"));
+        System.out.println("   last screen: " + msg.substring(0, Math.min(400, msg.length())));
 
-        // ===== 2. Flywheel holds 1300 on good vs old battery, while driving hard =====
-        for (double rb : new double[]{0.04, 0.12, 0.18}) {
-            World.reset(); World.RBAT = rb;
-            Flywheel.TABLE.clear(); // force FIXED speed path: no table -> speedForDistance 0, so use SPEED_FROM_DISTANCE=false
-            TeleopAutoAim.SPEED_FROM_DISTANCE = false;
-            final double[] mn = {99, 0, 99, 0}; // minV, maxErr after 1.5s, min speed
-            run(Run::aim, 8, (t, op) -> { World.pad.left_stick_y = (float) (Math.sin(t*3) > 0 ? 1 : -1); },
-                op -> { mn[0] = Math.min(mn[0], World.vbat); if (World.t > 2) { mn[1] = Math.max(mn[1], Math.abs(World.fly - 1300)/13.0); } });
-            System.out.printf("[2] battery R=%.2f ohm, driving full fwd/back: lowest %.2f V, flywheel max error %.1f %% of 1300%n", rb, mn[0], mn[1]);
+        // keep the measured values except the turret test position (saved on purpose at a wrong spot)
+        Calib.V_RIGHT = 1.030;
+        Calib.save();
+        World.CAM_PITCH_TRUE = 32; World.RANGE_SCALE = 1.4;      // same robot from here on
+
+        // ===================== B. TELEOP AUTO-AIM =====================
+        System.out.println("\n=== B. TELEOP AUTO-AIM (calibrated values) ===");
+        // B1: hive 35 deg right at 150 cm, turret forward. Triangle = auto-fire on.
+        World.reset(); World.RBAT = 0.05; place(0, -150, 90 + 35, 0.663);
+        final double[] maxTarget = {0}, minTarget = {1e9};
+        run(TeleopAutoAim::new, 7, (t, op) -> World.pad.triangle = at(t, 0.2), op -> {
+            if (World.t - run0 < 0.1) return;                    // first loop: dt = 0, returns early
+            double tg = fwTarget(op); maxTarget[0] = Math.max(maxTarget[0], tg); minTarget[0] = Math.min(minTarget[0], tg); });
+        System.out.printf("   B1 auto-fire: shots %d, worst aim at a shot %.2f deg, speed at shots %s, dist %s%n", World.shots, World.shotAimMax, pct(), tl("Tags / dist (cam)"));
+        check("auto-fire shoots, aim < 4 deg (opening +/-8.5), speed fixed at SHOT_SPEED", World.shots > 5 && World.shotAimMax < 4 && maxTarget[0] == Calib.SHOT_SPEED && minTarget[0] == Calib.SHOT_SPEED);
+
+        // B2: auto-fire OFF -> no shots; R2 -> shots
+        World.reset(); place(0, -150, 90 + 35, 0.663);
+        run(TeleopAutoAim::new, 4, (t, op) -> {}, null);
+        int noFire = World.shots;
+        World.reset(); place(0, -150, 90 + 35, 0.663);
+        run(TeleopAutoAim::new, 5, (t, op) -> World.pad.right_trigger = t > 3 ? 1 : 0, null);
+        System.out.printf("   B2 auto-fire OFF: shots %d (want 0); R2 held: shots %d, worst aim %.2f%n", noFire, World.shots, World.shotAimMax);
+        check("no shots without R2 when auto-fire is OFF; R2 shoots on target", noFire == 0 && World.shots > 0 && World.shotAimMax < 4);
+
+        // B3: touchpad -> FIXED FRONT; auto-fire ON must NOT fire; R2 fires; touchpad again -> AIM
+        World.reset(); place(0, -150, 90 + 35, 0.663);
+        final double[] potAt = {0}; final int[] shotsFixedAuto = {0}, shotsFixedR2 = {0};
+        run(TeleopAutoAim::new, 9, (t, op) -> {
+            World.pad.triangle = at(t, 0.2);                       // auto-fire ON
+            World.pad.touchpad = at(t, 3.0, 7.0);                  // AIM -> FIXED FRONT ... -> AIM
+            World.pad.right_trigger = t > 5.0 && t < 6.5 ? 1 : 0;  // R2 in FIXED
+        }, op -> {
+            if (Math.abs(World.t - (run0 + 4.9)) < 0.011) { potAt[0] = World.potV; shotsFixedAuto[0] = World.shots; }
+            if (Math.abs(World.t - (run0 + 6.9)) < 0.011) shotsFixedR2[0] = World.shots;
+        });
+        System.out.printf("   B3 FIXED FRONT: pot %.3f (want %.3f), screen %s%n", potAt[0], Calib.V_FRONT, tl("TURRET (touchpad)"));
+        System.out.printf("      shots in AIM before 3 s + FIXED auto (3..5 s): %d, after R2 in FIXED: %d, total %d%n", shotsFixedAuto[0], shotsFixedR2[0], World.shots);
+        check("touchpad: FIXED goes to FRONT (+/-0.03 V)", Math.abs(potAt[0] - Calib.V_FRONT) < 0.03);
+        check("R2 shoots in FIXED", shotsFixedR2[0] > shotsFixedAuto[0]);
+        check("touchpad again -> back to AIM", tl("TURRET (touchpad)").startsWith("AIM"));
+
+        // B4: D-pad spots
+        String[] names = {"UP/FRONT", "DOWN/BACK", "LEFT", "RIGHT"};
+        double[] want = {Calib.V_FRONT, Calib.V_BACK, Calib.V_LEFT, Calib.V_RIGHT};
+        for (int k = 0; k < 4; k++) {
+            final int kk = k;
+            World.reset(); place(0, -150, 90 + 35, 1.03);
+            run(TeleopAutoAim::new, 3.5, (t, op) -> {
+                World.pad.dpad_up = kk == 0 && at(t, 0.3); World.pad.dpad_down = kk == 1 && at(t, 0.3);
+                World.pad.dpad_left = kk == 2 && at(t, 0.3); World.pad.dpad_right = kk == 3 && at(t, 0.3);
+            }, null);
+            System.out.printf("   B4 D-pad %-9s pot %.3f (want %.3f)  %s%n", names[k], World.potV, want[k], tl("TURRET (touchpad)"));
+            check("D-pad " + names[k] + " holds its spot", Math.abs(World.potV - want[k]) < 0.03);
         }
-        TeleopAutoAim.SPEED_FROM_DISTANCE = true;
-        Flywheel.load();     // tuner file from step 1 (has calibrated KS/KV + table)
-        if (Flywheel.TABLE.isEmpty()) { double[][] mm = {{90,1375},{100,1375},{110,1350},{130,1300},{160,1270},{170,1285}}; for (double[] p : mm) Flywheel.putPoint(p[0], p[1]); }
-        System.out.println("    table: " + Flywheel.tableString());
 
-        // ===== 3. Standing, hive 35 deg right of front at 150 cm. Turret starts at front. =====
-        World.reset(); World.RBAT = 0.04; World.HX = 0; World.HY = 0; World.ROW = 0;
-        double hd = 90 + 35;       // robot heading so the hive is 35 deg to the right
-        place(-150*Math.cos(Math.toRadians(90)), -150, hd, 0.663);
-        final double[] firstFire = {-1}; World.DEBUG = true;
-        run(Run::aim, 8, (t, op) -> {}, op -> { if (firstFire[0] < 0 && World.shots > 0) firstFire[0] = World.t; });
-        System.out.printf("%n[3] STATIC 150 cm, hive 35 deg right: aim err %.2f deg, dist screen %s vs true %.0f cm, shots %d (first at %.2f s), speed at shots %s%n",
-                World.aimErr(), tl("Tags / dist"), World.trueDistCm(), World.shots, firstFire[0], pct());
-        World.DEBUG = false;
-        System.out.println("    screen: SHOOT=" + tl("SHOOT") + "  Speed=" + tl("Speed") + "  Turret=" + tl("Turret"));
-
-        // ===== 4. Robot spins in place while tags in view, then stops =====
+        // B5: camera blocked, drive + turn: odometry keeps the aim
         World.reset(); place(0, -150, 90, 0.663);
-        st0();
-        run(Run::aim, 6, (t, op) -> World.pad.right_stick_x = (float) (t > 1.5 && t < 2.3 ? 0.5 : t > 3 && t < 3.8 ? -0.5 : 0),
-            op -> { if (World.t > 1.5) st(World.aimErr()); });
-        System.out.printf("    aim error at each shot: max %.2f deg%n", World.shotAimMax);
-        System.out.printf("[4] SPIN in place (0.5 turn, both ways): max aim err %.1f deg, mean %.2f deg, final %.2f deg, shots %d, worst aim at a shot %.2f deg%n", maxAbs, sum/n, World.aimErr(), World.shots, World.shotAimMax);
+        final double[] maxErr = {0};
+        run(TeleopAutoAim::new, 6, (t, op) -> {
+            World.CAMERA_BLOCKED = t > 1.5;
+            World.pad.left_stick_y = (float) (t > 1.6 && t < 2.4 ? 0.6 : 0);
+            World.pad.right_stick_x = (float) (t > 2.6 && t < 3.4 ? 0.4 : 0);
+        }, op -> { if (World.t > run0 + 4) maxErr[0] = Math.max(maxErr[0], Math.abs(World.aimErr())); });
+        System.out.printf("   B5 camera blocked, drive + turn: aim error after moving %.2f deg%n", maxErr[0]);
+        check("odometry aim holds within 3 deg", maxErr[0] < 3);
 
-        // ===== 5. Camera blocked: drive and turn, odometry only =====
-        World.reset(); place(0, -150, 90, 0.663);
-        st0();
-        run(Run::aim, 6, (t, op) -> {
-                World.CAMERA_BLOCKED = t > 1.5;
-                World.pad.left_stick_y = (float) (t > 1.6 && t < 2.4 ? 0.6 : 0);
-                World.pad.right_stick_x = (float) (t > 2.6 && t < 3.4 ? 0.4 : 0); },
-            op -> { if (World.t > 1.6) st(World.aimErr()); });
-        System.out.printf("[5] CAMERA BLOCKED, drive + turn on odometry: max aim err %.1f deg, final %.2f deg, dist screen %s vs true %.0f cm, shots %d, worst aim at a shot %.2f deg%n",
-                maxAbs, World.aimErr(), tl("Tags / dist"), World.trueDistCm(), World.shots, World.shotAimMax);
-
-        // ===== 6. Drive in from 250 cm to 120 cm: range gate + speed follows table =====
-        World.reset(); place(0, -250, 90, 0.663);
-        final StringBuilder log = new StringBuilder();
-        run(Run::aim, 7, (t, op) -> World.pad.left_stick_y = (float) (World.trueDistCm() > 125 && t > 1 ? 0.25 : 0),
-            op -> { if (Math.abs(World.t % 1.0) < 0.02) log.append(String.format("      t=%.0f true %.0f cm | %s | %s | %s%n", World.t, World.trueDistCm(), tl("Tags / dist"), tl("Speed"), tl("SHOOT"))); });
-        System.out.printf("[6] DRIVE IN 250 -> 120 cm: shots %d, speed at shots %s, worst aim at a shot %.2f deg%n%s", World.shots, pct(), World.shotAimMax, log);
-
-        // ===== 7. Old battery, shooting continuously at 140 cm =====
-        World.reset(); World.RBAT = 0.15; place(0, -140, 90, 0.663);
-        final double[] lowV = {99};
-        run(Run::aim, 6, (t, op) -> World.pad.left_bumper = true, op -> lowV[0] = Math.min(lowV[0], World.vbat));
-        System.out.printf("[7] OLD BATTERY 0.15 ohm, 140 cm: shots %d, speed at shots %s, lowest %.2f V%n", World.shots, pct(), lowV[0]);
-        World.RBAT = 0.04;
-
-        // ===== 7b. Auto-fire OFF: no shots without R2, shots while R2 held =====
-        TeleopAutoAim.AUTO_FIRE_AT_START = false;
-        World.reset(); place(0, -100, 90 + 15, 0.663);
-        run(Run::aim, 4, (t, op) -> {}, null);
-        int noR2 = World.shots;
-        World.reset(); place(0, -100, 90 + 15, 0.663);
-        run(Run::aim, 4, (t, op) -> World.pad.right_trigger = (float) (t > 2.5 ? 1 : 0), null);
-        System.out.printf("[7b] AUTO-FIRE OFF at 100 cm: shots without R2 %d (expect 0), with R2 held from 2.5 s %d (expect >0), worst aim at a shot %.2f deg, screen %s%n", noR2, World.shots, World.shotAimMax, tl("SHOOT"));
-        World.reset(); place(0, -100, 90 + 15, 0.663);
-        run(Run::aim, 4, (t, op) -> World.pad.triangle = t > 1.0 && t < 1.1, null);
-        System.out.printf("     Triangle pressed once: shots %d (expect >0), screen %s%n", World.shots, tl("AUTO-FIRE (Triangle)"));
-        TeleopAutoAim.AUTO_FIRE_AT_START = true;
-
-        // ===== 8. Wrong alliance selected =====
-        World.reset(); place(0, -150, 90, 0.663);
-        run(Run::aim, 3, (t, op) -> World.pad.dpad_left = t < 0, null);   // init_loop gets t<0? no -> see below
-        System.out.printf("[8] BLUE selected, blue tags: shots %d (expect >0)%n", World.shots);
-        World.reset(); place(0, -150, 90, 0.663);
-        run(Run::aim, 3, (t, op) -> World.pad.dpad_left = true, null);
-        System.out.printf("    RED selected, only blue tags visible: shots %d (expect 0), screen %s%n", World.shots, tl("SHOOT"));
-
-        // ===== 9. Sensitivity: physical setup errors =====
-        System.out.println("\n[9] WHAT PHYSICAL ERRORS DO (robot at 150 cm true):");
-        sens("correct setup", () -> {});
-        sens("Limelight tag size 165.1 mm (2x)", () -> World.RANGE_SCALE = 2.0);
-        sens("Limelight tag size 101.6 mm", () -> World.RANGE_SCALE = 101.6/82.55);
-        sens("camera pitch really 30 (code 25)", () -> World.CAM_PITCH_TRUE = 30);
-        sens("camera pitch really 20 (code 25)", () -> World.CAM_PITCH_TRUE = 20);
-        sens("tags 1000 mm high (not 700)", () -> World.TAG_H = 1000);
-        sens("odometry 3% scale error", () -> World.ODO_SCALE = 1.03);
-        close();
-    }
-
-    static void close(){
-        System.out.println("\n[10] YOUR SHOOTING DISTANCES (camera lens 25 deg up):");
-        for (double th : new double[]{700, 1000}) for (double d : new double[]{90, 100, 110, 130, 170}) {
-            World.reset(); World.TAG_H = th; place(0, -d, 90 + 15, 0.663);
-            run(Run::aim, 4, (t, op) -> {}, null);
-            System.out.printf("    tags %4.0f mm high, %3.0f cm: dist screen %-12s speed %-12s aim err %5.2f  shots %2d  speed at shots %s  %s%n",
-                th, d, tl("Tags / dist"), tl("Speed"), World.aimErr(), World.shots, pct(), tl("SHOOT"));
+        // ===================== C. BATTERY LIMITER =====================
+        System.out.println("\n=== C. BATTERY LIMITER (driver slams full forward / back every 0.4 s, flywheel on) ===");
+        // calibrated with the GOOD battery (file says 0.05 ohm); then the weak battery is plugged in
+        Calib.BAT_R = 0.05; Calib.save();
+        for (double rb : new double[]{0.05, 0.20}) {
+            for (boolean on : new boolean[]{false, true}) {
+                World.reset(); World.RBAT = rb; place(0, -150, 90, 0.663);
+                Power.V_FLOOR = on ? 9.0 : 0.0;
+                final double[] lowV = {99}, maxCut = {0}; final double[] dist = {0}; final int[] cutLoops = {0}, loops = {0};
+                run(TeleopAutoAim::new, 6, (t, op) -> World.pad.left_stick_y = (float) (t > 1 ? (((int) (t / 0.4)) % 2 == 0 ? 1 : -1) : 0),
+                    op -> { learnedR = ohmsOf(op); if (World.t > run0 + 1) { lowV[0] = Math.min(lowV[0], World.vbat); maxCut[0] = Math.max(maxCut[0], cutOf(op)); loops[0]++; if (cutOf(op) > 0.05) cutLoops[0]++; dist[0] += Math.abs(World.v) * LOOP; } });
+                System.out.printf("   battery %.2f ohm (file says 0.05), limiter %-3s: lowest %.2f V, max cut %3.0f %% (%d of %d loops), driven %.0f cm, learned R %.0f mOhm%n",
+                        rb, on ? "ON" : "OFF", lowV[0], maxCut[0] * 100, cutLoops[0], loops[0], dist[0] / 10, learnedR * 1000);
+                if (!on) offDist = dist[0];
+                if (on && rb == 0.05) check("good battery: no lag (same distance, cut in < 3 % of loops)", Math.abs(dist[0] - offDist) < 0.02 * offDist && cutLoops[0] < 0.03 * loops[0]);
+                if (on && rb == 0.20) check("weak battery: stays above ~8.7 V", lowV[0] > 8.7);
+            }
         }
-        World.TAG_H = 700;
-        System.out.println("    If the LENS pointed 65 deg up:");
-        World.reset(); World.CAM_PITCH_TRUE = 65; place(0, -100, 90 + 15, 0.663);
-        run(Run::aim, 4, (t, op) -> {}, null);
-        System.out.printf("    100 cm: tags %s, %s%n", tl("Tags / dist"), tl("SHOOT"));
-        World.CAM_PITCH_TRUE = 25;
+        Power.V_FLOOR = 9.0;
+
+        // ===================== D. AUTOS (real OpModes) =====================
+        System.out.println("\n=== D. AUTOS ===");
+        // D1: auto tras parcare (AutoHelper, red audience cell 34). Hive on the robot's RIGHT (init spot), 150 cm.
+        World.reset(); World.RBAT = 0.05; World.FIRST_TAG = 34; World.OTHER_TAGS = new int[]{30, 38, 42};
+        place(0, -150, 180, 1.03);
+        final double[] flyMax = {0};
+        run(org.firstinspires.ftc.teamcode.auto.AutoTrasParcare::new, 9, (t, op) -> {}, op -> flyMax[0] = Math.max(flyMax[0], World.fly));
+        System.out.printf("   D1 auto tras parcare: shots %d, speed at shots %s, worst aim %.2f deg, state %s, robot moved to x %.0f y %.0f%n",
+                World.shots, pct(), World.shotAimMax, tl("state"), World.x / 10, World.y / 10);
+        check("parcare: shoots at SHOT_SPEED (99-101 %) on target, then drives", World.shots > 0 && minPct() > 98.5 && World.shotAimMax < 4
+                && !tl("state").equals("SHOOT"));
+        // D2: auto tras tilt jos (AutoHelperTilted, red far cell 30, turret forward). Hive in FRONT, 150 cm.
+        World.reset(); World.FIRST_TAG = 30; World.OTHER_TAGS = new int[]{34, 38, 42};
+        place(0, -150, 90, 0.663);
+        final double[] preSpin = {0};
+        run(org.firstinspires.ftc.teamcode.auto.AutoTrasTiltJos::new, 9, (t, op) -> {}, op -> {
+            if (tl("state").equals("WAIT_TAGS") || tl("state").equals("SHOOT")) preSpin[0] = Math.max(preSpin[0], World.fly); });
+        System.out.printf("   D2 auto tras tilt jos: flywheel reached %.0f tps, shots %d, speed at shots %s, worst aim %.2f deg, state %s%n",
+                preSpin[0], World.shots, pct(), World.shotAimMax, tl("state"));
+        check("tilt jos: flywheel spins (Flywheel class), shoots at SHOT_SPEED on target", preSpin[0] > 1000 && World.shots > 0 && minPct() > 98.5 && World.shotAimMax < 4);
+        // D3: tilt jos with the camera blocked: must NOT shoot (feeds only on live tags), then parks after the timeout
+        World.reset(); place(0, -150, 90, 0.663); World.CAMERA_BLOCKED = true;
+        run(org.firstinspires.ftc.teamcode.auto.AutoTrasTiltJos::new, 4, (t, op) -> World.CAMERA_BLOCKED = true, null);
+        System.out.printf("   D3 tilt jos, camera blocked: shots %d (want 0), state %s%n", World.shots, tl("state"));
+        check("tilt jos never shoots without live tags", World.shots == 0);
+
+        System.out.println(fails == 0 ? "\nALL CHECKS PASSED" : "\nFAILED CHECKS: " + fails);
     }
 
-    static void sens(String name, Runnable setup){
-        World.reset(); World.RANGE_SCALE = 1; World.CAM_PITCH_TRUE = 25; World.TAG_H = 700; World.ODO_SCALE = 1;
-        setup.run(); place(0, -150, 90 + 20, 0.663);
-        run(Run::aim, 4, (t, op) -> {}, null);
-        System.out.printf("    %-36s dist screen %-12s aim err %5.2f deg  shots %d  %s%n", name, tl("Tags / dist"), World.aimErr(), World.shots, tl("SHOOT"));
-        World.RANGE_SCALE = 1; World.CAM_PITCH_TRUE = 25; World.TAG_H = 700; World.ODO_SCALE = 1;
+    static double run0;   // set by each run (start time)
+    static final StringBuilder kpMsg = new StringBuilder(), camMsg = new StringBuilder(), batMsg = new StringBuilder(), drvMsg = new StringBuilder();
+    static String after(StringBuilder sb, String key) { int i = sb.indexOf(key); return i < 0 ? "(none)" : sb.substring(i, Math.min(sb.length(), i + 420)); }
+
+    static double fwTarget(OpMode op) {
+        try { java.lang.reflect.Field f = op.getClass().getDeclaredField("fw"); f.setAccessible(true); return ((Flywheel) f.get(op)).getTarget(); }
+        catch (Exception e) { return -1; }
     }
-    static String pct(){ if (World.shotPct.isEmpty()) return "-"; double mn = 999, mx = 0; for (double p : World.shotPct) { mn = Math.min(mn, p); mx = Math.max(mx, p); } return String.format("%.1f-%.1f %%", mn, mx); }
+    static double learnedR, offDist;
+    static double ohmsOf(OpMode op) {
+        try { java.lang.reflect.Field f = op.getClass().getDeclaredField("power"); f.setAccessible(true); return ((Power) f.get(op)).ohms(); }
+        catch (Exception e) { return -1; }
+    }
+    static double cutOf(OpMode op) {
+        try { java.lang.reflect.Field f = op.getClass().getDeclaredField("power"); f.setAccessible(true); return ((Power) f.get(op)).cut(); }
+        catch (Exception e) { return -1; }
+    }
+    static double minPct() { double mn = 999; for (double p : World.shotPct) mn = Math.min(mn, p); return mn; }
+    static String pct() {
+        if (World.shotPct.isEmpty()) return "-";
+        double mn = 999, mx = 0; for (double p : World.shotPct) { mn = Math.min(mn, p); mx = Math.max(mx, p); }
+        return String.format("%.1f-%.1f %%", mn, mx);
+    }
+    /** Camera distance at a given true distance with the calibrated pitch/scale (uses the real CellVision math). */
+    static double camCheck(double cm) {
+        World.reset(); place(0, -cm, 90, 0.663);
+        for (int i = 0; i < 10; i++) physics();
+        com.qualcomm.hardware.limelightvision.LLResult r = World.llLatest;
+        List<org.firstinspires.ftc.teamcode.CellVision.Tag> t = org.firstinspires.ftc.teamcode.CellVision.tags(r, 30, 34, 38, 42);
+        return org.firstinspires.ftc.teamcode.CellVision.distCm(t, Calib.CAM_PITCH_DEG, Calib.DIST_SCALE);
+    }
 }

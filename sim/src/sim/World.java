@@ -45,11 +45,12 @@ public class World {
 
     // ---- devices ----
     public static class Motor implements DcMotorEx {
-        public String name; public double power; public Direction dir = Direction.FORWARD;
+        public String name; public double power, amps; public Direction dir = Direction.FORWARD; public ZeroPowerBehavior zpb = ZeroPowerBehavior.FLOAT;
         Motor(String n){name=n;}
         public void setDirection(Direction d){dir=d;} public void setPower(double p){power=Math.max(-1,Math.min(1,p));} public double getPower(){return power;}
-        public void setMode(RunMode m){} public void setZeroPowerBehavior(ZeroPowerBehavior z){}
+        public void setMode(RunMode m){} public void setZeroPowerBehavior(ZeroPowerBehavior z){zpb=z;}
         public double getVelocity(){ return fly + rnd.nextGaussian()*5; }
+        public double getCurrent(org.firstinspires.ftc.robotcore.external.navigation.CurrentUnit u){ return amps + rnd.nextGaussian()*0.1; }
     }
     public static Map<String,Object> dev = new HashMap<>();
     public static VoltageSensor battery = () -> vbat + rnd.nextGaussian()*0.02;
@@ -87,7 +88,9 @@ public class World {
         double l = v - omega*TRACK/2, r = v + omega*TRACK/2;
         l += (tl - l) * dt / 0.12; r += (tr - r) * dt / 0.12;
         v = (l + r) / 2; omega = (r - l) / TRACK;
-        double iDrive = 2*Math.abs(vL*vbat - l/sp)/1.3 + 2*Math.abs(vR*vbat - r/sp)/1.3;
+        double iL = vL == 0 ? 0 : 2*Math.abs(vL*vbat - l/sp)/1.3, iR = vR == 0 ? 0 : 2*Math.abs(vR*vbat - r/sp)/1.3;   // 0 power = brake, no battery current
+        m("stanga").amps = iL; m("dreapta").amps = iR;
+        double iDrive = iL + iR;
         x += v*Math.cos(h)*dt; y += v*Math.sin(h)*dt; h = wrap(h + omega*dt);
         // odometry (in reset frame, with errors)
         double dxr = v*Math.cos(h)*dt*ODO_SCALE, dyr = v*Math.sin(h)*dt*ODO_SCALE;
@@ -102,9 +105,12 @@ public class World {
         double pf = m("turelaD").power;
         double emf = fly / FLY_VPV;
         double drive = pf*vbat;
-        fly += ((drive - FLY_FRIC_V*Math.signum(fly) ) * FLY_VPV - fly) * dt / FLY_TAU;
+        if (pf == 0 && m("turelaD").zpb == DcMotor.ZeroPowerBehavior.FLOAT) fly -= Math.signum(fly) * FLY_FRIC_V * FLY_VPV / FLY_TAU * dt;   // coast
+        else fly += ((drive - FLY_FRIC_V*Math.signum(fly) ) * FLY_VPV - fly) * dt / FLY_TAU;                                                   // drive / brake
         if (fly < 0 && pf <= 0) fly = Math.max(fly, 0);
         double iFly = 2*Math.max(0, drive - emf)/1.3;
+        m("turelaD").amps = iFly / 2; m("turelaS").amps = iFly / 2;
+        m("intake").amps = Math.abs(m("intake").power) * 1.5; m("stagiu").amps = Math.abs(m("stagiu").power) * 1.5;
         // feeder -> shots: a ball leaves after 80 ms of feeding, next ball 250 ms later
         double iFeed = (Math.abs(m("intake").power) + Math.abs(m("stagiu").power))*1.5;
         if (m("stagiu").power > 0.5) { feedT += dt; if (feedT > 0.08) { if (DEBUG) System.out.printf("      shot t=%.2f aimErr=%.2f turretVel=%.0f deg/s omega=%.0f deg/s%n", t, aimErr(), potW*(turretDeg(potV+0.001)-turretDeg(potV))/0.001, Math.toDegrees(omega)); shots++; shotAimMax = Math.max(shotAimMax, Math.abs(aimErr())); shotPct.add(lastTarget > 0 ? fly/lastTarget*100 : 0); fly *= 0.94; feedT = -0.25; } }
@@ -157,7 +163,7 @@ public class World {
     public static void reset(){
         t = 0; x = y = h = v = omega = 0; potV = 1.03; potW = 0; fly = 0; vbat = VOC; iTot = 0; nextFrame = 0; llLatest = null;
         pend.clear(); pendR.clear(); shots = 0; shotAimMax = 0; shotPct.clear(); feedT = 0; pad = new Gamepad(); tele = new Tele(); rnd = new Random(1);
-        for (Object o : dev.values()) if (o instanceof Motor) ((Motor) o).power = 0;
+        for (Object o : dev.values()) if (o instanceof Motor) { ((Motor) o).power = 0; ((Motor) o).amps = 0; ((Motor) o).zpb = DcMotor.ZeroPowerBehavior.FLOAT; }
         CAMERA_BLOCKED = false;
     }
 
