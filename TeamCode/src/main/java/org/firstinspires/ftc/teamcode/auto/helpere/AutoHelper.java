@@ -17,7 +17,9 @@ import com.qualcomm.robotcore.util.ElapsedTime;
 import com.qualcomm.robotcore.util.Range;
 
 import org.firstinspires.ftc.robotcore.external.Telemetry;
+import org.firstinspires.ftc.teamcode.Calib;
 import org.firstinspires.ftc.teamcode.Flywheel;
+import org.firstinspires.ftc.teamcode.Power;
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.Pose2D;
@@ -196,6 +198,8 @@ public class AutoHelper {
     private final GoBildaPinpointDriver pinpoint;
     private final VoltageSensor voltageSensor;
     private final Flywheel fly;
+    private final Power power;
+    private final ElapsedTime driveClock = new ElapsedTime();
     private final DcMotor stagiu, turret, intake;
     private final AnalogInput pot;
     private final Limelight3A limelight;
@@ -255,8 +259,16 @@ public class AutoHelper {
         this.voltageSensor = hardwareMap.voltageSensor.iterator().next();
 
         // flywheel
-        Flywheel.load();                       // tuner values if the file exists, else built-in
+        // calibrated values (ROBOT CALIBRATION) replace the defaults above
+        Calib.load();
+        V_FRONT = Calib.V_FRONT;
+        V_CENTER = Calib.V_RIGHT;
+        V_BACK = Calib.V_BACK;
+        V_INIT = Calib.V_RIGHT;
+        CAM_PITCH_DEG = Calib.CAM_PITCH_DEG;
+        FLY_TARGET = Calib.SHOT_SPEED;
         fly = new Flywheel(hardwareMap);
+        power = new Power(hardwareMap);
         intake = hardwareMap.dcMotor.get("intake");
         stagiu = hardwareMap.dcMotor.get("stagiu");
         stagiu.setDirection(DcMotorSimple.Direction.REVERSE);
@@ -339,6 +351,7 @@ public class AutoHelper {
 
     /** One pinpoint read per loop + turret tracking. Call at the top of every loop(). */
     public void update(Telemetry t) {
+        power.read();
         refreshPose();
         poseFresh = true;
         updateTurret(t);
@@ -491,6 +504,7 @@ public class AutoHelper {
     // =========================================================
 
     public void setFlywheel(double target) {
+        if (target > 0 && !fly.isOn() && fly.getVelocity() < 100) power.learnFromFlywheelStart();   // battery check
         flyTarget = target;
         fly.setTarget(target);
         fly.setOn(target > 0);
@@ -689,7 +703,7 @@ public class AutoHelper {
             if (i < 0 || i >= N || seen[i]) continue;
 
             Position p = f.getTargetPoseCameraSpace().getPosition().toUnit(DistanceUnit.MM);
-            double range = Math.sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
+            double range = Math.sqrt(p.x * p.x + p.y * p.y + p.z * p.z) * Calib.DIST_SCALE;
             if (range <= MIN_DIST_MM || range >= MAX_DIST_MM) continue;
 
             double tx = f.getTargetXDegrees(), ty = f.getTargetYDegrees();
@@ -890,8 +904,7 @@ public class AutoHelper {
 
     /** Stops drive only (used between moves). */
     public void stop() {
-        stanga.setPower(0);
-        dreapta.setPower(0);
+        setDrive(0, 0);
     }
 
     /** OpMode stop(): everything off. */
@@ -925,16 +938,23 @@ public class AutoHelper {
     }
 
     private void setTurn(double power) {
-        stanga.setPower(-power);
-        dreapta.setPower(power);
+        setDrive(-power, power);
     }
 
     private void setDriveTurn(double drive, double turn) {
         double left = drive - turn;
         double right = drive + turn;
         double maxMag = Math.max(1.0, Math.max(Math.abs(left), Math.abs(right)));
-        stanga.setPower(left / maxMag);
-        dreapta.setPower(right / maxMag);
+        setDrive(left / maxMag, right / maxMag);
+    }
+
+    /** All drive power goes through the battery limiter (Power): no brownout on a weak battery. */
+    private void setDrive(double l, double r) {
+        double dt = Math.max(1e-3, driveClock.seconds());
+        driveClock.reset();
+        double[] d = power.drive(l, r, dt);
+        stanga.setPower(d[0]);
+        dreapta.setPower(d[1]);
     }
 
     private static double[] rotate(double forward, double left, double headingDeg) {
