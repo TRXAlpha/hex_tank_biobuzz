@@ -1,4 +1,4 @@
-package org.firstinspires.ftc.teamcode.auto;
+package org.firstinspires.ftc.teamcode.auto.blue;
 
 import com.acmerobotics.dashboard.FtcDashboard;
 import com.acmerobotics.dashboard.config.Config;
@@ -12,9 +12,11 @@ import com.qualcomm.robotcore.util.ElapsedTime;
 import org.firstinspires.ftc.teamcode.Pozitie;
 import org.firstinspires.ftc.teamcode.auto.helpere.AutoHelper;
 
+// BLUE: the path values below are a COPY of the RED ones. Tune them on the blue side.
+// Aims at tag cluster 38 (BLUE audience CELL).
 @Config
-@Autonomous(name = "auto tras parcare")
-public class AutoTrasParcare extends OpMode {
+@Autonomous(name = "auto tras parcare BLUE")
+public class AutoTrasParcareBlue extends OpMode {
     public static double SHOOT_MS = 5000;   // gated feed window after flywheel at speed + turret on target
 
     public static double heading_parcare = -80;
@@ -49,7 +51,7 @@ public class AutoTrasParcare extends OpMode {
         stagiu.setDirection(DcMotorSimple.Direction.REVERSE);
         stagiu.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE); intake = hardwareMap.get(DcMotor.class, "intake");
         telemetry = new MultipleTelemetry(telemetry, FtcDashboard.getInstance().getTelemetry());
-        drive = AutoHelper.fromHardwareMap(hardwareMap, "stanga", "dreapta", "pinpoint", -44.3, -6.6);
+        drive = AutoHelper.fromHardwareMap(hardwareMap, "stanga", "dreapta", "pinpoint", -44.3, -6.6, 38);
         drive.resetPose();
         Pozitie.clear();                   // no old pose leaks into teleop
         runtime.reset();

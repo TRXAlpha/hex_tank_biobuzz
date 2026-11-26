@@ -67,7 +67,7 @@ import org.firstinspires.ftc.teamcode.Pozitie;
  * Pan angle: robot frame, CCW +, 0 = robot front.
  */
 @Config
-@TeleOp(name = "teleop full", group = "turela")
+@TeleOp(name = "teleop full BLUE", group = "turela")
 public class teleopPerefectBlue extends OpMode {
 
     // ================= CAMERA / MOUNT =================

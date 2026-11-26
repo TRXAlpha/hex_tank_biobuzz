@@ -5,7 +5,8 @@ import com.qualcomm.robotcore.hardware.Gamepad;
 import org.firstinspires.ftc.teamcode.Calib;
 import org.firstinspires.ftc.teamcode.Flywheel;
 import org.firstinspires.ftc.teamcode.Power;
-import org.firstinspires.ftc.teamcode.teleop.TeleopAutoAim;
+import org.firstinspires.ftc.teamcode.teleop.TeleopAutoAimBlue;
+import org.firstinspires.ftc.teamcode.teleop.TeleopAutoAimRed;
 import org.firstinspires.ftc.teamcode.tuning.RobotCalibration;
 
 import java.util.*;
@@ -127,7 +128,7 @@ public class Run {
         // B1: hive 35 deg right at 150 cm, turret forward. Triangle = auto-fire on.
         World.reset(); World.RBAT = 0.05; place(0, -150, 90 + 35, 0.663);
         final double[] maxTarget = {0}, minTarget = {1e9};
-        run(TeleopAutoAim::new, 7, (t, op) -> World.pad.triangle = at(t, 0.2), op -> {
+        run(TeleopAutoAimBlue::new, 7, (t, op) -> World.pad.triangle = at(t, 0.2), op -> {
             if (World.t - run0 < 0.1) return;                    // first loop: dt = 0, returns early
             double tg = fwTarget(op); maxTarget[0] = Math.max(maxTarget[0], tg); minTarget[0] = Math.min(minTarget[0], tg); });
         System.out.printf("   B1 auto-fire: shots %d, worst aim at a shot %.2f deg, speed at shots %s, dist %s%n", World.shots, World.shotAimMax, pct(), tl("Tags / dist (cam)"));
@@ -135,17 +136,17 @@ public class Run {
 
         // B2: auto-fire OFF -> no shots; R2 -> shots
         World.reset(); place(0, -150, 90 + 35, 0.663);
-        run(TeleopAutoAim::new, 4, (t, op) -> {}, null);
+        run(TeleopAutoAimBlue::new, 4, (t, op) -> {}, null);
         int noFire = World.shots;
         World.reset(); place(0, -150, 90 + 35, 0.663);
-        run(TeleopAutoAim::new, 5, (t, op) -> World.pad.right_trigger = t > 3 ? 1 : 0, null);
+        run(TeleopAutoAimBlue::new, 5, (t, op) -> World.pad.right_trigger = t > 3 ? 1 : 0, null);
         System.out.printf("   B2 auto-fire OFF: shots %d (want 0); R2 held: shots %d, worst aim %.2f%n", noFire, World.shots, World.shotAimMax);
         check("no shots without R2 when auto-fire is OFF; R2 shoots on target", noFire == 0 && World.shots > 0 && World.shotAimMax < 4);
 
         // B3: touchpad -> FIXED FRONT; auto-fire ON must NOT fire; R2 fires; touchpad again -> AIM
         World.reset(); place(0, -150, 90 + 35, 0.663);
         final double[] potAt = {0}; final int[] shotsFixedAuto = {0}, shotsFixedR2 = {0};
-        run(TeleopAutoAim::new, 9, (t, op) -> {
+        run(TeleopAutoAimBlue::new, 9, (t, op) -> {
             World.pad.triangle = at(t, 0.2);                       // auto-fire ON
             World.pad.touchpad = at(t, 3.0, 7.0);                  // AIM -> FIXED FRONT ... -> AIM
             World.pad.right_trigger = t > 5.0 && t < 6.5 ? 1 : 0;  // R2 in FIXED
@@ -165,7 +166,7 @@ public class Run {
         for (int k = 0; k < 4; k++) {
             final int kk = k;
             World.reset(); place(0, -150, 90 + 35, 1.03);
-            run(TeleopAutoAim::new, 3.5, (t, op) -> {
+            run(TeleopAutoAimBlue::new, 3.5, (t, op) -> {
                 World.pad.dpad_up = kk == 0 && at(t, 0.3); World.pad.dpad_down = kk == 1 && at(t, 0.3);
                 World.pad.dpad_left = kk == 2 && at(t, 0.3); World.pad.dpad_right = kk == 3 && at(t, 0.3);
             }, null);
@@ -176,13 +177,23 @@ public class Run {
         // B5: camera blocked, drive + turn: odometry keeps the aim
         World.reset(); place(0, -150, 90, 0.663);
         final double[] maxErr = {0};
-        run(TeleopAutoAim::new, 6, (t, op) -> {
+        run(TeleopAutoAimBlue::new, 6, (t, op) -> {
             World.CAMERA_BLOCKED = t > 1.5;
             World.pad.left_stick_y = (float) (t > 1.6 && t < 2.4 ? 0.6 : 0);
             World.pad.right_stick_x = (float) (t > 2.6 && t < 3.4 ? 0.4 : 0);
         }, op -> { if (World.t > run0 + 4) maxErr[0] = Math.max(maxErr[0], Math.abs(World.aimErr())); });
         System.out.printf("   B5 camera blocked, drive + turn: aim error after moving %.2f deg%n", maxErr[0]);
         check("odometry aim holds within 3 deg", maxErr[0] < 3);
+
+        // B6: RED teleop: red tags -> shoots; only blue tags in view -> never shoots
+        World.reset(); World.FIRST_TAG = 34; World.OTHER_TAGS = new int[]{30, 38, 42}; place(0, -150, 90 + 35, 0.663);
+        run(TeleopAutoAimRed::new, 6, (t, op) -> World.pad.triangle = at(t, 0.2), null);
+        int redShots = World.shots;
+        World.reset(); World.FIRST_TAG = 38; World.OTHER_TAGS = new int[]{}; place(0, -150, 90 + 35, 0.663);
+        run(TeleopAutoAimRed::new, 6, (t, op) -> World.pad.triangle = at(t, 0.2), null);
+        System.out.printf("   B6 RED teleop: red cell shots %d (want >0), only blue cell in view shots %d (want 0)%n", redShots, World.shots);
+        check("RED teleop aims at red cells only", redShots > 0 && World.shots == 0);
+        World.FIRST_TAG = 38; World.OTHER_TAGS = new int[]{30, 34, 42};
 
         // ===================== C. BATTERY LIMITER =====================
         System.out.println("\n=== C. BATTERY LIMITER (driver slams full forward / back every 0.4 s, flywheel on) ===");
@@ -193,7 +204,7 @@ public class Run {
                 World.reset(); World.RBAT = rb; place(0, -150, 90, 0.663);
                 Power.V_FLOOR = on ? 9.0 : 0.0;
                 final double[] lowV = {99}, maxCut = {0}; final double[] dist = {0}; final int[] cutLoops = {0}, loops = {0};
-                run(TeleopAutoAim::new, 6, (t, op) -> World.pad.left_stick_y = (float) (t > 1 ? (((int) (t / 0.4)) % 2 == 0 ? 1 : -1) : 0),
+                run(TeleopAutoAimBlue::new, 6, (t, op) -> World.pad.left_stick_y = (float) (t > 1 ? (((int) (t / 0.4)) % 2 == 0 ? 1 : -1) : 0),
                     op -> { learnedR = ohmsOf(op); if (World.t > run0 + 1) { lowV[0] = Math.min(lowV[0], World.vbat); maxCut[0] = Math.max(maxCut[0], cutOf(op)); loops[0]++; if (cutOf(op) > 0.05) cutLoops[0]++; dist[0] += Math.abs(World.v) * LOOP; } });
                 System.out.printf("   battery %.2f ohm (file says 0.05), limiter %-3s: lowest %.2f V, max cut %3.0f %% (%d of %d loops), driven %.0f cm, learned R %.0f mOhm%n",
                         rb, on ? "ON" : "OFF", lowV[0], maxCut[0] * 100, cutLoops[0], loops[0], dist[0] / 10, learnedR * 1000);
@@ -206,27 +217,27 @@ public class Run {
 
         // ===================== D. AUTOS (real OpModes) =====================
         System.out.println("\n=== D. AUTOS ===");
-        // D1: auto tras parcare (AutoHelper, red audience cell 34). Hive on the robot's RIGHT (init spot), 150 cm.
-        World.reset(); World.RBAT = 0.05; World.FIRST_TAG = 34; World.OTHER_TAGS = new int[]{30, 38, 42};
-        place(0, -150, 180, 1.03);
-        final double[] flyMax = {0};
-        run(org.firstinspires.ftc.teamcode.auto.AutoTrasParcare::new, 9, (t, op) -> {}, op -> flyMax[0] = Math.max(flyMax[0], World.fly));
-        System.out.printf("   D1 auto tras parcare: shots %d, speed at shots %s, worst aim %.2f deg, state %s, robot moved to x %.0f y %.0f%n",
-                World.shots, pct(), World.shotAimMax, tl("state"), World.x / 10, World.y / 10);
-        check("parcare: shoots at SHOT_SPEED (99-101 %) on target, then drives", World.shots > 0 && minPct() > 98.5 && World.shotAimMax < 4
-                && !tl("state").equals("SHOOT"));
-        // D2: auto tras tilt jos (AutoHelperTilted, red far cell 30, turret forward). Hive in FRONT, 150 cm.
-        World.reset(); World.FIRST_TAG = 30; World.OTHER_TAGS = new int[]{34, 38, 42};
-        place(0, -150, 90, 0.663);
-        final double[] preSpin = {0};
-        run(org.firstinspires.ftc.teamcode.auto.AutoTrasTiltJos::new, 9, (t, op) -> {}, op -> {
-            if (tl("state").equals("WAIT_TAGS") || tl("state").equals("SHOOT")) preSpin[0] = Math.max(preSpin[0], World.fly); });
-        System.out.printf("   D2 auto tras tilt jos: flywheel reached %.0f tps, shots %d, speed at shots %s, worst aim %.2f deg, state %s%n",
-                preSpin[0], World.shots, pct(), World.shotAimMax, tl("state"));
-        check("tilt jos: flywheel spins (Flywheel class), shoots at SHOT_SPEED on target", preSpin[0] > 1000 && World.shots > 0 && minPct() > 98.5 && World.shotAimMax < 4);
+        String[][] autos = {{"parcare RED", "34"}, {"parcare BLUE", "38"}, {"tilt jos RED", "30"}, {"tilt jos BLUE", "42"}};
+        List<Supplier<OpMode>> mk = Arrays.asList(org.firstinspires.ftc.teamcode.auto.red.AutoTrasParcareRed::new,
+                org.firstinspires.ftc.teamcode.auto.blue.AutoTrasParcareBlue::new,
+                org.firstinspires.ftc.teamcode.auto.red.AutoTrasTiltJosRed::new,
+                org.firstinspires.ftc.teamcode.auto.blue.AutoTrasTiltJosBlue::new);
+        for (int k = 0; k < 4; k++) {
+            int tag = Integer.parseInt(autos[k][1]);
+            World.reset(); World.RBAT = 0.05; World.FIRST_TAG = tag;
+            List<Integer> others = new ArrayList<>(Arrays.asList(30, 34, 38, 42)); others.remove(Integer.valueOf(tag));
+            World.OTHER_TAGS = others.stream().mapToInt(Integer::intValue).toArray();
+            if (k < 2) place(0, -150, 180, 1.03); else place(0, -150, 90, 0.663);   // parcare: hive RIGHT, tilt: hive FRONT
+            final double[] flyMax = {0};
+            run(mk.get(k), 9, (t, op) -> {}, op -> flyMax[0] = Math.max(flyMax[0], World.fly));
+            System.out.printf("   D %-13s (tag %d): flywheel max %.0f, shots %d, speed at shots %s, worst aim %.2f deg, state %s%n",
+                    autos[k][0], tag, flyMax[0], World.shots, pct(), World.shotAimMax, tl("state"));
+            check(autos[k][0] + ": shoots at SHOT_SPEED on its own cell, then moves on", World.shots > 0 && minPct() > 98.5
+                    && World.shotAimMax < 4 && !tl("state").equals("SHOOT") && !tl("state").equals("WAIT_TAGS"));
+        }
         // D3: tilt jos with the camera blocked: must NOT shoot (feeds only on live tags), then parks after the timeout
-        World.reset(); place(0, -150, 90, 0.663); World.CAMERA_BLOCKED = true;
-        run(org.firstinspires.ftc.teamcode.auto.AutoTrasTiltJos::new, 4, (t, op) -> World.CAMERA_BLOCKED = true, null);
+        World.reset(); World.FIRST_TAG = 30; place(0, -150, 90, 0.663); World.CAMERA_BLOCKED = true;
+        run(org.firstinspires.ftc.teamcode.auto.red.AutoTrasTiltJosRed::new, 4, (t, op) -> World.CAMERA_BLOCKED = true, null);
         System.out.printf("   D3 tilt jos, camera blocked: shots %d (want 0), state %s%n", World.shots, tl("state"));
         check("tilt jos never shoots without live tags", World.shots == 0);
 

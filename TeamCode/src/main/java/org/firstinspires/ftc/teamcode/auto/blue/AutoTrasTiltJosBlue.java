@@ -1,4 +1,4 @@
-package org.firstinspires.ftc.teamcode.auto;
+package org.firstinspires.ftc.teamcode.auto.blue;
 
 import com.acmerobotics.dashboard.FtcDashboard;
 import com.acmerobotics.dashboard.config.Config;
@@ -9,9 +9,11 @@ import com.qualcomm.robotcore.util.ElapsedTime;
 
 import org.firstinspires.ftc.teamcode.auto.helpere.AutoHelperTilted;
 
+// BLUE: the path values below are a COPY of the RED ones. Tune them on the blue side.
+// Aims at tag cluster 42 (BLUE far CELL).
 @Config
-@Autonomous(name = "auto tras tilt jos")
-public class AutoTrasTiltJos extends OpMode {
+@Autonomous(name = "auto tras tilt jos BLUE")
+public class AutoTrasTiltJosBlue extends OpMode {
 
     // ---------- timing ----------
     public static double TAG_TIMEOUT_S = 20;   // no tags by then -> park
@@ -41,7 +43,7 @@ public class AutoTrasTiltJos extends OpMode {
     public void init() {
         telemetry = new MultipleTelemetry(telemetry, FtcDashboard.getInstance().getTelemetry());
         // fromHardwareMap() already calls resetPosAndIMU()
-        drive = AutoHelperTilted.fromHardwareMap(hardwareMap, "stanga", "dreapta", "pinpoint", -44.3, -6.6);
+        drive = AutoHelperTilted.fromHardwareMap(hardwareMap, "stanga", "dreapta", "pinpoint", -44.3, -6.6, 42);
     }
 
     @Override

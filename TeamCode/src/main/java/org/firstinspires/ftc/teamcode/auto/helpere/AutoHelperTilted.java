@@ -206,6 +206,14 @@ public class AutoHelperTilted {
         clock.reset();
     }
 
+    /** Same as below, and sets FIRST_TAG (leftmost tag of the CELL to aim at: 30, 34, 38 or 42). */
+    public static AutoHelperTilted fromHardwareMap(HardwareMap hardwareMap,
+                                                   String leftName, String rightName, String pinpointName,
+                                                   double podOffsetX_mm, double podOffsetY_mm, int tag) {
+        FIRST_TAG = tag;
+        return fromHardwareMap(hardwareMap, leftName, rightName, pinpointName, podOffsetX_mm, podOffsetY_mm);
+    }
+
     public static AutoHelperTilted fromHardwareMap(HardwareMap hardwareMap,
                                                    String leftName, String rightName, String pinpointName,
                                                    double podOffsetX_mm, double podOffsetY_mm) {

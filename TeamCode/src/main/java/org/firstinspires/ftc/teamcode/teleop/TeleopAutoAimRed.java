@@ -26,7 +26,7 @@ import org.firstinspires.ftc.teamcode.Power;
 import java.util.List;
 
 /*
- * TELEOP AUTO-AIM. One fixed flywheel speed (Calib.SHOT_SPEED). The turret aims by itself or holds a fixed spot.
+ * TELEOP AUTO-AIM RED (copy of the BLUE file: a fix goes in BOTH). One fixed flywheel speed (Calib.SHOT_SPEED). The turret aims by itself or holds a fixed spot.
  *
  * DRIVER (PS5):
  *   Left stick Y + right stick X   drive (battery limiter: Power)
@@ -39,15 +39,15 @@ import java.util.List;
  *   Circle hold    unjam (intake + stagiu reverse)
  *   Square         flywheel on/off (on at start)
  *   Share          forget the CELL and scan again
- * INIT: D-pad LEFT = RED, D-pad RIGHT = BLUE.
+ * Alliance: RED (fixed in this file).
  *
  * AIM mode, every new camera frame: our CELL center (CellVision) -> FIELD point with the Pinpoint pose from
  * when the picture was taken. Between frames / without tags the turret aims at that point with odometry.
  * Before the first sighting the turret sweeps its range. All physical values come from Calib (ROBOT CALIBRATION).
  */
 @Config
-@TeleOp(name = "TELEOP AUTO-AIM", group = "turela")
-public class TeleopAutoAim extends OpMode {
+@TeleOp(name = "TELEOP AUTO-AIM RED", group = "turela")
+public class TeleopAutoAimRed extends OpMode {
 
     // ---------- vision ----------
     public static int PIPELINE = 2;
@@ -73,7 +73,8 @@ public class TeleopAutoAim extends OpMode {
     private GoBildaPinpointDriver odo;
     private Flywheel fw;
     private Power power;
-    private boolean red = false, autoFire, flyWasOn;
+    private final boolean red = true;       // alliance of this file
+    private boolean autoFire, flyWasOn;
     private double scanDir = 1, onSince = -1;
 
     // turret mode
@@ -150,10 +151,8 @@ public class TeleopAutoAim extends OpMode {
 
     @Override
     public void init_loop() {
-        if (gamepad1.dpad_left) red = true;
-        if (gamepad1.dpad_right) red = false;
         double volts = power.read();
-        telemetry.addData("ALLIANCE (D-pad L = RED, R = BLUE)", red ? "RED" : "BLUE");
+        telemetry.addData("ALLIANCE", red ? "RED" : "BLUE");
         telemetry.addData("Calibration", Calib.fromFile ? "loaded" : "DEFAULTS - run ROBOT CALIBRATION");
         telemetry.addData("Shot speed", "%.0f", Calib.SHOT_SPEED);
         telemetry.addData("Battery", "%.2f V%s", volts, volts < 12.3 ? "  <- CHANGE IT" : "");
