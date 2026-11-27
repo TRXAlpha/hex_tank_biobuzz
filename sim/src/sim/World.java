@@ -64,10 +64,12 @@ public class World {
     static Motor m(String n){ return (Motor) dev.get(n); }
 
     public static int POT_MODE = 0;            // 0 good, 1 random spikes (bad contact), 2 dead (reads 0 V)
+    public static double POT_OFFSET = 0;       // slipped pot: reads this many volts off (smoothly)
+    public static boolean TURRET_JAMMED = false, ODO_FROZEN = false, ODO_FAULT = false;
     public static double potVolts(){
         if (POT_MODE == 2) return 0.0;
         if (POT_MODE == 1 && rnd.nextDouble() < 0.08) return potV + (rnd.nextBoolean() ? 1 : -1) * (0.5 + rnd.nextDouble());
-        return potV + rnd.nextGaussian()*0.002; }
+        return potV + POT_OFFSET + rnd.nextGaussian()*0.002; }
 
     // ---- turret angle model = same pot formula as the code (assumes calibration is right) ----
     public static double V_FRONT = 0.663, V_CENTER = 1.030, V_BACK = 1.500; public static boolean LATERAL_IS_LEFT = false;
@@ -110,10 +112,11 @@ public class World {
         // odometry (in reset frame, with errors)
         double dxr = v*Math.cos(h)*dt*ODO_SCALE, dyr = v*Math.sin(h)*dt*ODO_SCALE;
         double c = Math.cos(-oh), s = Math.sin(-oh);
-        odx += dxr*c - dyr*s; ody += dxr*s + dyr*c; odh = wrap(h - oh + ODO_HEAD_DRIFT*t);
+        if (!ODO_FROZEN) { odx += dxr*c - dyr*s; ody += dxr*s + dyr*c; odh = wrap(h - oh + ODO_HEAD_DRIFT*t); }
         // turret
         double p = m("turret").power; double pe = Math.abs(p) < 0.08 ? 0 : p - Math.copySign(0.08, p);
         potW += (pe*TURRET_GAIN*vbat/12 - potW) * dt / 0.05;
+        if (TURRET_JAMMED) potW = 0;
         potV += potW*dt; if (potV < 0.45) { potV = 0.45; potW = 0; } if (potV > 1.8) { potV = 1.8; potW = 0; }
         double iTur = Math.abs(p)*4;
         // flywheel (turelaD/S share one wheel)
@@ -180,7 +183,7 @@ public class World {
         pend.clear(); pendR.clear(); shots = 0; shotAimMax = 0; shotPct.clear(); feedT = 0; pad = new Gamepad(); tele = new Tele(); rnd = new Random(1);
         for (Object o : dev.values()) if (o instanceof Motor) { ((Motor) o).power = 0; ((Motor) o).dir = DcMotorSimple.Direction.FORWARD; ((Motor) o).amps = 0; ((Motor) o).zpb = DcMotor.ZeroPowerBehavior.FLOAT; }
         CAMERA_BLOCKED = false;
-        POT_MODE = 0;
+        POT_MODE = 0; POT_OFFSET = 0; TURRET_JAMMED = false; ODO_FROZEN = false; ODO_FAULT = false;
     }
 
     public static class Tele implements Telemetry {

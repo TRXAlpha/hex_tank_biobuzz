@@ -7,6 +7,7 @@ import org.firstinspires.ftc.teamcode.Flywheel;
 import org.firstinspires.ftc.teamcode.Power;
 import org.firstinspires.ftc.teamcode.teleop.TeleopAutoAimBlue;
 import org.firstinspires.ftc.teamcode.teleop.TeleopAutoAimRed;
+import org.firstinspires.ftc.teamcode.teleop.safe.TeleopSafeBlue;
 import org.firstinspires.ftc.teamcode.tuning.RobotCalibration;
 
 import java.util.*;
@@ -214,6 +215,49 @@ public class Run {
             op -> moved[0] = Math.max(moved[0], Math.abs(World.potV - pot0[0])));
         System.out.printf("   DEAD pot, no tags: turret moved %.3f V (want ~0), screen: %s%n", moved[0], tl("Turret aim"));
         check("dead pot + no tags: turret holds still", moved[0] < 0.02);
+
+        // ===================== S. TELEOP SAFE: the 3 guards =====================
+        System.out.println("\n=== S. TELEOP SAFE BLUE ===");
+        // S0: normal play (drive, turn, shoot with auto-fire): no guard may trigger
+        World.reset(); place(0, -150, 90 + 25, 0.663);
+        run(TeleopSafeBlue::new, 12, (t, op) -> {
+            World.pad.triangle = at(t, 0.2);
+            World.pad.left_stick_y = (float) (t > 3 && t < 4 ? -0.5 : t > 6 && t < 7 ? 0.5 : 0);
+            World.pad.right_stick_x = (float) (t > 8 && t < 8.6 ? -0.4 : t > 9.5 && t < 10.1 ? 0.4 : 0); }, null);
+        System.out.printf("   S0 normal play: shots %d, SAFETY: %s%n", World.shots, tl("SAFETY"));
+        check("normal play: no false guard (SAFETY all OK) and it still shoots", tl("SAFETY").startsWith("all OK") && World.shots > 0);
+        // S1: the pot slips 0.08 V (~20 deg) at 4 s, tags in view
+        World.reset(); place(0, -150, 90 + 25, 0.663);
+        final double[] errAfter = {0};
+        run(TeleopSafeBlue::new, 10, (t, op) -> { World.POT_OFFSET = t > 4 ? 0.08 : 0; World.pad.right_trigger = t > 7 ? 1 : 0; },
+            op -> { if (World.t > run0 + 6) errAfter[0] = Math.max(errAfter[0], Math.abs(World.aimErr())); });
+        System.out.printf("   S1 pot slipped 20 deg: aim error after 6 s %.2f deg, R2 shots %d (worst %.2f), SAFETY: %s, aim: %s%n",
+                errAfter[0], World.shots, World.shotAimMax, tl("SAFETY"), tl("Turret aim"));
+        check("slipped pot: POT SUSPECT, camera keeps the aim, R2 shoots", tl("SAFETY").contains("POT SUSPECT") && errAfter[0] < 3 && World.shots > 0);
+        // S2: turret jams at 3 s while the robot turns (turret wants to move)
+        World.reset(); place(0, -150, 90 + 25, 0.663);
+        final double[] fullPowerMs = {0}; final String[] seen = {""};
+        run(TeleopSafeBlue::new, 7, (t, op) -> { World.TURRET_JAMMED = t > 3; World.pad.right_stick_x = (float) (t > 3 && t < 6 ? -0.4 : 0); },
+            op -> { if (World.t > run0 + 3 && Math.abs(World.m("turret").power) >= 0.5) fullPowerMs[0] += LOOP * 1000;
+                    if (tl("SAFETY").contains("STUCK")) seen[0] = tl("SAFETY"); });
+        System.out.printf("   S2 jammed turret: time at high power %.0f ms of 4000 (want small), screen showed: %s%n", fullPowerMs[0], seen[0]);
+        check("jammed turret: STUCK shown, high power only in short bursts", seen[0].contains("STUCK") && fullPowerMs[0] < 1500);
+        // S3: Pinpoint fault / frozen, camera blocked: turret must not swing to a wrong place
+        for (int k = 0; k < 2; k++) {
+            final int kk = k;
+            World.reset(); place(0, -150, 90, 0.663);
+            final double[] oMoved = {0}; final double[] oPotAt = {0}; final String[] scr = {""};
+            run(TeleopSafeBlue::new, 6, (t, op) -> {
+                if (kk == 0) World.ODO_FAULT = t > 2; else World.ODO_FROZEN = t > 2;
+                World.CAMERA_BLOCKED = t > 2;
+                World.pad.right_stick_x = (float) (t > 2.2 && t < 3.0 ? -0.5 : 0);
+                World.pad.left_stick_y = (float) (kk == 1 && t > 3.2 && t < 5 ? -0.6 : 0); },
+                op -> { if (Math.abs(World.t - (run0 + 2)) < 0.011) oPotAt[0] = World.potV;
+                        if (World.t > run0 + 2) oMoved[0] = Math.max(oMoved[0], Math.abs(World.potV - oPotAt[0]));
+                        if (tl("SAFETY").contains("ODOMETRY")) scr[0] = tl("SAFETY") + " / " + tl("Turret aim"); });
+            System.out.printf("   S3 odometry %s, camera blocked: turret moved %.3f V after the fault, screen: %s%n", kk == 0 ? "FAULT" : "FROZEN", oMoved[0], scr[0]);
+            check("odometry " + (kk == 0 ? "fault" : "frozen") + ": detected, turret holds", scr[0].contains("ODOMETRY") && scr[0].contains("HOLD") && oMoved[0] < 0.03 + (kk == 1 ? 0.06 : 0));
+        }
 
         // ===================== C. BATTERY LIMITER =====================
         System.out.println("\n=== C. BATTERY LIMITER (driver slams full forward / back every 0.4 s, flywheel on) ===");
