@@ -60,6 +60,8 @@ public class TeleopAutoAimBlue extends OpMode {
     public static boolean MOTOR_REVERSED = false;
     public static double MAX_POWER = 1, kP = 0.006, kD = 0.0002, kS = 0.2, kV = 0.0015;
     public static double TOLERANCE_DEG = 1.5, FILTER_ALPHA = 0.4;
+    public static double GLITCH_V = 0.4;          // pot jump bigger than this in 1 loop = bad reading (try 0.3-0.4)
+    public static int GLITCH_LOOPS = 3;           // ignore up to this many loops, then accept the new value
 
     // ---------- shooting ----------
     public static double AIM_TOL_DEG = 3;
@@ -93,6 +95,8 @@ public class TeleopAutoAimBlue extends OpMode {
     // turret
     private double v, deg, rawDeg, lastDeg, target, minDeg, maxDeg;
     private boolean potOk = true, saturated = false;
+    private double goodRaw = -1;                  // last accepted pot voltage
+    private int badLoops = 0, glitches = 0, resyncs = 0;
 
     // buttons (edge detect): touchpad, up, down, left, right, square, triangle
     private final boolean[] prev = new boolean[7];
@@ -105,6 +109,7 @@ public class TeleopAutoAimBlue extends OpMode {
 
     private final ElapsedTime clock = new ElapsedTime();
     private double lastMs = 0;
+    private double loopMs = 0, loopAvg = 0, loopMax = 0, loopMaxShown = 0, loopWinStart = 0;   // ms
 
     @Override
     public void init() {
@@ -173,6 +178,10 @@ public class TeleopAutoAimBlue extends OpMode {
         double now = clock.milliseconds(), dt = (now - lastMs) / 1000.0;
         lastMs = now;
         if (dt <= 0) return;
+        loopMs = dt * 1000;
+        loopAvg = loopAvg == 0 ? loopMs : loopAvg + 0.05 * (loopMs - loopAvg);   // smooth average
+        loopMax = Math.max(loopMax, loopMs);
+        if (now - loopWinStart >= 1000) { loopMaxShown = loopMax; loopMax = 0; loopWinStart = now; }   // worst loop, last 1 s
         double volts = power.read();
         boolean[] pr = readButtons();
 
@@ -271,11 +280,13 @@ public class TeleopAutoAimBlue extends OpMode {
         telemetry.addData("SHOOT", hold ? (feed ? "R2: FIRING" : "R2: waiting for " + (fw.isAtSpeed() ? "turret" : "speed")) : why);
         telemetry.addData("Speed", "%.0f / %.0f", fw.getVelocity(), fw.getTarget());
         telemetry.addData("Tags / dist (cam)", "%d / %.0f cm (%.0f)", tags, dist, camDist);
-        telemetry.addData("Turret", "%.1f -> %.1f deg%s", deg, target, potOk ? "" : "  POT ERROR");
+        telemetry.addData("Turret", "%.1f -> %.1f deg%s", deg, target, potOk ? "" : "  POT GLITCH - motor off");
+        telemetry.addData("Pot glitches / resyncs", "%d / %d", glitches, resyncs);
         telemetry.addData("Battery / R / drive cut", "%.2f V / %.0f mOhm / %.0f %%%s", volts, power.ohms() * 1000,
                 power.cut() * 100, volts < Power.V_FLOOR ? "  LOW" : "");
         telemetry.addData("Odometry x / y / heading", "%.0f / %.0f mm / %.0f deg", x, y, Math.toDegrees(head));
-        telemetry.addData("Loop", "%.0f ms", dt * 1000);
+        telemetry.addData("Loop now / avg / max(1s)", "%.0f / %.1f / %.0f ms  (%.0f Hz)",
+                loopMs, loopAvg, loopMaxShown, 1000.0 / Math.max(loopAvg, 1e-3));
         telemetry.update();
     }
 
@@ -319,8 +330,18 @@ public class TeleopAutoAimBlue extends OpMode {
 
     private void readTurret() {
         double raw = pot.getVoltage();
-        potOk = raw > 0.03 && raw < 3.25;
-        if (!potOk) return;
+        boolean inRange = raw > 0.03 && raw < 3.25;
+        boolean jump = goodRaw >= 0 && Math.abs(raw - goodRaw) > GLITCH_V;
+        if (!inRange || jump) {
+            badLoops++;
+            glitches++;
+            if (!inRange || badLoops < GLITCH_LOOPS) { potOk = false; return; }   // ignore -> driveTurret sets power 0
+            v = raw;                         // same new value GLITCH_LOOPS loops in a row -> it is real
+            resyncs++;
+        }
+        badLoops = 0;
+        potOk = true;
+        goodRaw = raw;
         v += FILTER_ALPHA * (raw - v);
         rawDeg = Calib.turretDeg(raw);     // unfiltered -> vision history
         deg = Calib.turretDeg(v);          // filtered -> control
