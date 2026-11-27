@@ -27,6 +27,7 @@ public class Power {
     public static double V_FLOOR = 9.0;         // keep the battery above this (volts)
     public static double CUT_PER_LOOP = 0.85;   // backup: drive scale *= this every loop under V_FLOOR
     public static double RECOVER_PER_S = 1.5;   // backup: drive scale comes back this fast (per second)
+    public static double MARGIN = 1.2;          // predicted amps x this (the measured R and current read ~10-15 % low)
 
     private final VoltageSensor bat;
     private double v, scale = 1, lastL = 0, lastR = 0, sL = 0, sR = 0, cut = 0;
@@ -88,7 +89,7 @@ public class Power {
         l = Math.max(-scale, Math.min(scale, l));
         r = Math.max(-scale, Math.min(scale, r));
 
-        double head = Math.max(0, v - V_FLOOR) / Math.max(1e-3, ohms());       // amps we may add
+        double head = Math.max(0, v - V_FLOOR) / Math.max(1e-3, ohms() * MARGIN);   // amps we may add
         double nowL = amps(lastL, sL), nowR = amps(lastR, sR);
         double dL = Math.max(0, amps(l, sL) - nowL), dR = Math.max(0, amps(r, sR) - nowR);
         if (dL + dR > head) {

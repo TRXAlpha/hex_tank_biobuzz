@@ -8,4 +8,4 @@ javac -nowarn -d out -sourcepath src $(find src -name '*.java') \
   $T/Calib.java $T/Flywheel.java $T/CellVision.java $T/Power.java \
   $T/teleop/TeleopAutoAimRed.java $T/teleop/TeleopAutoAimBlue.java $T/tuning/RobotCalibration.java $T/Pozitie.java \
   $T/auto/helpere/AutoHelper.java $T/auto/helpere/AutoHelperTilted.java \
-  $T/auto/red/*.java $T/auto/blue/*.java && java -cp out sim.Run
+  $T/auto/red/*.java $T/auto/blue/*.java && java -cp out sim.Run && java -cp out sim.Paths

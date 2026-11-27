@@ -7,6 +7,8 @@ import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.util.ElapsedTime;
 
+import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
+import org.firstinspires.ftc.teamcode.Calib;
 import org.firstinspires.ftc.teamcode.auto.helpere.AutoHelperTilted;
 
 // BLUE: the path values below are a COPY of the RED ones. Tune them on the blue side.
@@ -14,6 +16,12 @@ import org.firstinspires.ftc.teamcode.auto.helpere.AutoHelperTilted;
 @Config
 @Autonomous(name = "auto tras tilt jos BLUE")
 public class AutoTrasTiltJosBlue extends OpMode {
+
+    // ---------- start pose ----------
+    // true: the robot starts with its BACK to the hive and the turret pointing BACK (the cable ridge on the
+    // turret makes the robot too big when the turret faces the intake). The path numbers below are the ones
+    // measured with the FRONT to the hive: go() turns them 180 deg, so the robot drives the same field path.
+    public static boolean START_BACK_TO_HIVE = true;
 
     // ---------- timing ----------
     public static double TAG_TIMEOUT_S = 20;   // no tags by then -> park
@@ -35,6 +43,13 @@ public class AutoTrasTiltJosBlue extends OpMode {
     private enum State {WAIT_TAGS, SHOOT, GO_FIRST, GO_FINAL, PARK, DONE}
 
     private AutoHelperTilted drive;
+
+    /** lap() with the start-pose turn applied (see START_BACK_TO_HIVE). turnHeading = false: keep the heading
+     *  as written (GO_FIRST: 0 = keep the start heading, no 180 deg spin). */
+    private boolean go(double heading, double x, double y, boolean turnHeading) {
+        if (!START_BACK_TO_HIVE) return drive.lap(heading, x, y, telemetry);
+        return drive.lap(turnHeading ? AngleUnit.normalizeDegrees(heading + 180) : heading, -x, -y, telemetry);
+    }
     private State state = State.WAIT_TAGS;
     private final ElapsedTime runtime = new ElapsedTime();
     private final ElapsedTime statetimer = new ElapsedTime();
@@ -44,6 +59,7 @@ public class AutoTrasTiltJosBlue extends OpMode {
         telemetry = new MultipleTelemetry(telemetry, FtcDashboard.getInstance().getTelemetry());
         // fromHardwareMap() already calls resetPosAndIMU()
         drive = AutoHelperTilted.fromHardwareMap(hardwareMap, "stanga", "dreapta", "pinpoint", -44.3, -6.6, 42);
+        AutoHelperTilted.V_INIT = START_BACK_TO_HIVE ? Calib.V_BACK : Calib.V_FRONT;   // turret toward the hive in INIT
     }
 
     @Override
@@ -88,7 +104,7 @@ public class AutoTrasTiltJosBlue extends OpMode {
                 break;
 
             case GO_FIRST:
-                if (drive.lap(heading_first, x_first, y_first, telemetry)) {
+                if (go(heading_first, x_first, y_first, false)) {
                     drive.resetMove();
                     drive.stop();
                     statetimer.reset();
@@ -97,7 +113,7 @@ public class AutoTrasTiltJosBlue extends OpMode {
                 break;
 
             case GO_FINAL:
-                if (drive.lap(heading_final, x_final, y_final, telemetry)) {
+                if (go(heading_final, x_final, y_final, true)) {
                     drive.resetMove();
                     drive.stop();
                     statetimer.reset();
@@ -106,7 +122,7 @@ public class AutoTrasTiltJosBlue extends OpMode {
                 break;
 
             case PARK:
-                if (drive.lap(heading_park, x_park, y_park, telemetry)) {
+                if (go(heading_park, x_park, y_park, true)) {
                     drive.resetMove();
                     drive.stop();
                     statetimer.reset();
@@ -119,6 +135,7 @@ public class AutoTrasTiltJosBlue extends OpMode {
                 break;
         }
 
+        telemetry.addData("start", START_BACK_TO_HIVE ? "BACK to the hive, turret BACK" : "FRONT to the hive, turret FRONT");
         telemetry.addData("state", state);
         telemetry.addData("tags seen / visible", "%b / %b", drive.tagsSeen(), drive.tagsVisible());
         telemetry.addData("runtime", "%.1f", runtime.seconds());

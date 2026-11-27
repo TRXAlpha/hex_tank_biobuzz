@@ -56,6 +56,8 @@ public class AutoHelperTilted {
     public static int FIRST_TAG = 30;
     public static double FLY_TARGET = 1120;   // set from Calib.SHOT_SPEED in the constructor
     public static double HEADING_DEADBAND = 0.4;
+    public static double HEADING_TIMEOUT_S = 1.5;       // heading fix longer than this ...
+    public static double HEADING_GOOD_ENOUGH_DEG = 3;   // ... and within this -> done (stops a wobble from stalling the auto)
     public static double HEADING_KD = 0.002;
     public static double HEADING_KP = 0.55;
     public static double HEADING_KS = 0.35;
@@ -121,6 +123,8 @@ public class AutoHelperTilted {
     private boolean poseFresh = false;
     private boolean doneXY = false;
     private boolean doneHeading = false;
+    private boolean headingActive = false;
+    private final ElapsedTime headingClock = new ElapsedTime();
     private double targetX = Double.NaN;
     private double targetY = Double.NaN;
     private boolean lineReady = false;
@@ -363,9 +367,15 @@ public class AutoHelperTilted {
                     targetY - pose.getY(DistanceUnit.MM)));
         }
 
+        if (!headingActive) { headingActive = true; headingClock.reset(); }
         if (Math.abs(error) <= HEADING_DEADBAND) {
             stop();
             doneHeading = Math.abs(rate) <= HEADING_SETTLE_RATE;
+            return;
+        }
+        if (headingClock.seconds() > HEADING_TIMEOUT_S && Math.abs(error) <= HEADING_GOOD_ENOUGH_DEG) {
+            stop();
+            doneHeading = true;          // close enough: do not wobble forever
             return;
         }
 
@@ -384,6 +394,7 @@ public class AutoHelperTilted {
     }
 
     public void resetMove() {
+        headingActive = false;
         doneXY = false;
         doneHeading = false;
         lineReady = false;

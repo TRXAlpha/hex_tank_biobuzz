@@ -30,6 +30,7 @@ public class World {
     public static boolean CAMERA_BLOCKED = false, DEBUG = false;
     public static double FOV_X = 27.25, FOV_Y = 21, MAX_RANGE = 3500, FPS = 40;
     public static double DRIVE_MAX = 1500, TRACK = 380;     // mm/s at 12 V, track width
+    public static double DRIVE_FRIC = 0.05, TURN_FRIC = 0.25;  // power lost to friction (skid-steer turning is hard)
     public static double TURRET_GAIN = 2.5;                 // V/s at power 1 (pot space)
     public static double FLY_VPV = 183, FLY_FRIC_V = 0.4, FLY_TAU = 0.6;  // tps per volt, friction volts, time const
 
@@ -82,13 +83,23 @@ public class World {
     // ---- physics step ----
     public static void step(double dt){
         // battery
-        double vL = m("stanga").power, vR = m("dreapta").power;
+        // physical motor power = logical power, flipped by REVERSE; the two sides are mirror-mounted:
+        // forward needs left motor -1 and right motor +1 (auto: stanga REVERSE; teleop: dreapta REVERSE)
+        double pl = m("stanga").power * (m("stanga").dir == DcMotorSimple.Direction.REVERSE ? -1 : 1);
+        double pr = m("dreapta").power * (m("dreapta").dir == DcMotorSimple.Direction.REVERSE ? -1 : 1);
+        double vL = -pl, vR = pr;
+        double cmdL = vL, cmdR = vR;                                   // applied (for the motor current)
+        // skid-steer friction: turning in place needs TURN_FRIC power before the robot turns, driving DRIVE_FRIC
+        double cm = (vL + vR) / 2, df = (vR - vL) / 2;
+        cm = Math.signum(cm) * Math.max(0, Math.abs(cm) - DRIVE_FRIC);
+        df = Math.signum(df) * Math.max(0, Math.abs(df) - TURN_FRIC);
+        vL = cm - df; vR = cm + df;
         double sp = DRIVE_MAX / 12.0;                                   // mm/s per volt
         double tl = vL*vbat*sp, tr = vR*vbat*sp;                       // target side speeds
         double l = v - omega*TRACK/2, r = v + omega*TRACK/2;
         l += (tl - l) * dt / 0.12; r += (tr - r) * dt / 0.12;
         v = (l + r) / 2; omega = (r - l) / TRACK;
-        double iL = vL == 0 ? 0 : 2*Math.abs(vL*vbat - l/sp)/1.3, iR = vR == 0 ? 0 : 2*Math.abs(vR*vbat - r/sp)/1.3;   // 0 power = brake, no battery current
+        double iL = cmdL == 0 ? 0 : 2*Math.abs(cmdL*vbat - l/sp)/1.3, iR = cmdR == 0 ? 0 : 2*Math.abs(cmdR*vbat - r/sp)/1.3;   // 0 power = brake, no battery current
         m("stanga").amps = iL; m("dreapta").amps = iR;
         double iDrive = iL + iR;
         x += v*Math.cos(h)*dt; y += v*Math.sin(h)*dt; h = wrap(h + omega*dt);
@@ -163,7 +174,7 @@ public class World {
     public static void reset(){
         t = 0; x = y = h = v = omega = 0; potV = 1.03; potW = 0; fly = 0; vbat = VOC; iTot = 0; nextFrame = 0; llLatest = null;
         pend.clear(); pendR.clear(); shots = 0; shotAimMax = 0; shotPct.clear(); feedT = 0; pad = new Gamepad(); tele = new Tele(); rnd = new Random(1);
-        for (Object o : dev.values()) if (o instanceof Motor) { ((Motor) o).power = 0; ((Motor) o).amps = 0; ((Motor) o).zpb = DcMotor.ZeroPowerBehavior.FLOAT; }
+        for (Object o : dev.values()) if (o instanceof Motor) { ((Motor) o).power = 0; ((Motor) o).dir = DcMotorSimple.Direction.FORWARD; ((Motor) o).amps = 0; ((Motor) o).zpb = DcMotor.ZeroPowerBehavior.FLOAT; }
         CAMERA_BLOCKED = false;
     }
 
