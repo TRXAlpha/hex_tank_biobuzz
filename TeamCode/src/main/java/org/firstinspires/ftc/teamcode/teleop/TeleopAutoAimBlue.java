@@ -60,6 +60,10 @@ public class TeleopAutoAimBlue extends OpMode {
     public static boolean MOTOR_REVERSED = false;
     public static double MAX_POWER = 1, kP = 0.006, kD = 0.0002, kS = 0.2, kV = 0.0015;
     public static double TOLERANCE_DEG = 1.5, FILTER_ALPHA = 0.4;
+    public static double CAM_ONLY_MAX_POWER = 0.35;  // turret power cap when aiming on the camera with a BAD pot (no limits known)
+    public static double CAM_PULSE_POWER = 0.35;     // bad pot: push, stop, look at a NEW camera frame, push again
+    public static double CAM_MS_PER_DEG_START = 5;
+    public static double POT_GOOD_MS = 500;          // pot counts as good again only after this long without a bad reading   // first guess of push time per degree (learned while it runs)
     public static double GLITCH_V = 0.4;          // pot jump bigger than this in 1 loop = bad reading (try 0.3-0.4)
     public static int GLITCH_LOOPS = 3;           // ignore up to this many loops, then accept the new value
 
@@ -89,6 +93,12 @@ public class TeleopAutoAimBlue extends OpMode {
     private double fx, fy;                // mm, CELL center on the field (odometry frame)
     private double dist = 0;              // cm, turret pivot -> CELL center
     private double camDist = 0;           // cm, same, from the last camera frame only
+    private double camBear = 0;           // deg, CELL center seen from the turret (+ = left), last frame
+    private double camHead, camPan;       // robot heading (rad) and turret angle (deg) when that frame was taken
+    private boolean camPanOk;             // pot was good when that frame was taken
+    private String aimSrc = "";
+    private double camFrameT = -1e9, lastPotBad = -1e9;      // when the last camera frame was taken (clock ms)
+    private double pulseUntil = 0, pulseSign = 0, pulseMs = 0, errBeforePulse = 0, msPerDeg = -1;
     private int tags = 0;
     private double lastSeen = -1e9, lastStale = 1e9;
 
@@ -105,6 +115,7 @@ public class TeleopAutoAimBlue extends OpMode {
     private static final int H = 64;
     private final double[] hT = new double[H], hX = new double[H], hY = new double[H],
             hHead = new double[H], hPan = new double[H];
+    private final boolean[] hOk = new boolean[H];
     private int hI = 0;
 
     private final ElapsedTime clock = new ElapsedTime();
@@ -199,7 +210,7 @@ public class TeleopAutoAimBlue extends OpMode {
         double head = pose.getHeading(AngleUnit.RADIANS);
         double omega = odo.getHeadingVelocity(UnnormalizedAngleUnit.RADIANS);
         readTurret();
-        hT[hI] = now; hX[hI] = x; hY[hI] = y; hHead[hI] = head; hPan[hI] = rawDeg;
+        hT[hI] = now; hX[hI] = x; hY[hI] = y; hHead[hI] = head; hPan[hI] = rawDeg; hOk[hI] = potOk;
         hI = (hI + 1) % H;
 
         // ---------- vision ----------
@@ -224,10 +235,25 @@ public class TeleopAutoAimBlue extends OpMode {
         if (gamepad1.share) { haveAim = false; tags = 0; }    // forget -> scan again (AIM mode)
 
         // ---------- turret target ----------
-        double tv = 0;
+        if (!potOk) lastPotBad = now;
+        boolean potGood = potOk && now - lastPotBad > POT_GOOD_MS;    // spiking pot: stay on the camera
+        // AIM + tags visible: the error comes from the CAMERA (it sits on the turret), not from the pot.
+        // The pot is only used for the end stops, and only while it reads well.
+        double tv = 0, camErr = Double.NaN;
+        boolean camAim = !fixed && now - lastSeen <= LOST_MS;          // works even if the pot was never good
+        if (camAim) {
+            camErr = camBear - Math.toDegrees(head - camHead);             // robot turned since the frame
+            if (potOk && camPanOk) camErr -= deg - camPan;                 // turret moved since the frame
+            tv = -Math.toDegrees(omega);
+        }
         if (fixed) {
             target = Math.max(minDeg, Math.min(maxDeg, Calib.turretDeg(fixedV)));
             saturated = false;
+        } else if (camAim) {
+            double want = potOk ? deg + camErr : camErr;
+            target = potOk ? reachable(want) : want;
+            saturated = potOk && Math.abs(AngleUnit.normalizeDegrees(want - target)) > 0.5;
+            if (saturated) tv = 0;
         } else if (haveAim) {
             double want = AngleUnit.normalizeDegrees(Math.toDegrees(Math.atan2(fy - y, fx - x) - head));
             target = reachable(want);
@@ -240,7 +266,13 @@ public class TeleopAutoAimBlue extends OpMode {
             saturated = false;
             tv = scanDir * SCAN_DEG_S;
         }
-        driveTurret(dt, tv);
+        double err = camAim ? (potOk ? target - deg : camErr) : target - deg;
+        aimSrc = fixed ? (potOk ? "POT (fixed spot)" : "HOLD - pot bad, fixed spots need it")
+               : camAim ? (potGood ? "CAMERA" : "CAMERA ONLY - pot bad, push + look")
+               : haveAim ? (potOk ? "POT + odometry (no tags)" : "HOLD - pot bad, no tags")
+               : (potOk ? "SCAN" : "HOLD - pot bad, cannot scan");
+        if (camAim && !potGood) camOnlyTurret(now, camErr, tv);
+        else driveTurret(dt, tv, err, false);
 
         // ---------- flywheel: one fixed speed ----------
         if (pr[5]) fw.setOn(!fw.isOn());
@@ -253,20 +285,21 @@ public class TeleopAutoAimBlue extends OpMode {
         fw.update(volts);
 
         // ---------- shoot decision ----------
-        boolean onTarget = (fixed || haveAim) && !saturated && Math.abs(target - deg) <= AIM_TOL_DEG;
+        double aimErr = camAim && !potGood ? camErr : err;
+        boolean onTarget = (fixed || haveAim || camAim) && !saturated && Math.abs(aimErr) <= AIM_TOL_DEG && (potOk || camAim);
         if (!onTarget) onSince = -1; else if (onSince < 0) onSince = now;
         boolean steady = onTarget && now - onSince >= AIM_SETTLE_MS;
         boolean ok = false;
         String why;
         if (!fw.isOn())                    why = "flywheel OFF (Square)";
         else if (fixed)                    why = "FIXED " + fixedName + ": auto-fire off, hold R2";
-        else if (!haveAim)                 why = "SCANNING for tags";
+        else if (!haveAim && !camAim)      why = "SCANNING for tags";
         else if (tags < FIRE_MIN_TAGS)     why = "looking for tags";
         else if (saturated)                why = "turret at limit - turn robot";
         else if (!steady)                  why = "aiming";
         else if (!fw.isAtSpeed())          why = "speeding up";
         else { why = "FIRE"; ok = true; }
-        boolean r2Ready = fixed ? steady : (!haveAim || steady);
+        boolean r2Ready = fixed ? steady : ((!haveAim && !camAim) || steady);
         boolean feed = fw.isAtSpeed() && ((autoFire && !fixed && ok) || (hold && r2Ready));
 
         // ---------- intake + stagiu (one write each per loop) ----------
@@ -280,7 +313,8 @@ public class TeleopAutoAimBlue extends OpMode {
         telemetry.addData("SHOOT", hold ? (feed ? "R2: FIRING" : "R2: waiting for " + (fw.isAtSpeed() ? "turret" : "speed")) : why);
         telemetry.addData("Speed", "%.0f / %.0f", fw.getVelocity(), fw.getTarget());
         telemetry.addData("Tags / dist (cam)", "%d / %.0f cm (%.0f)", tags, dist, camDist);
-        telemetry.addData("Turret", "%.1f -> %.1f deg%s", deg, target, potOk ? "" : "  POT GLITCH - motor off");
+        telemetry.addData("Turret aim", aimSrc);
+        telemetry.addData("Turret", "%.1f -> %.1f deg, error %.1f%s", deg, target, err, potOk ? "" : "  POT BAD");
         telemetry.addData("Pot glitches / resyncs", "%d / %d", glitches, resyncs);
         telemetry.addData("Battery / R / drive cut", "%.2f V / %.0f mOhm / %.0f %%%s", volts, power.ohms() * 1000,
                 power.cut() * 100, volts < Power.V_FLOOR ? "  LOW" : "");
@@ -316,14 +350,21 @@ public class TeleopAutoAimBlue extends OpMode {
         for (int s = 0; s < H - 1 && hT[j] > tFrame; s++) j = (j - 1 + H) % H;
 
         camDist = Math.hypot(c[0], c[1]) / 10.0;
+        camBear = Math.toDegrees(Math.atan2(c[1], c[0]));           // + = left of the turret
+        camHead = hHead[j];
+        camPan = hPan[j];
+        camPanOk = hOk[j];
+        camFrameT = tFrame;
+        haveAim = haveAim || camPanOk;
+        tags = t.size();
+        lastSeen = clock.milliseconds();
+        if (!camPanOk) return;                                      // bad pot then: do not move the field point
         double a = hHead[j] + Math.toRadians(hPan[j]);              // turret direction on the field
         double nx = hX[j] + c[0] * Math.cos(a) - c[1] * Math.sin(a);
         double ny = hY[j] + c[0] * Math.sin(a) + c[1] * Math.cos(a);
         if (!haveAim || Math.hypot(nx - fx, ny - fy) > JUMP_MM) { fx = nx; fy = ny; }
         else { fx += CENTER_ALPHA * (nx - fx); fy += CENTER_ALPHA * (ny - fy); }
         haveAim = true;
-        tags = t.size();
-        lastSeen = clock.milliseconds();
     }
 
     // ===================== turret =====================
@@ -347,14 +388,46 @@ public class TeleopAutoAimBlue extends OpMode {
         deg = Calib.turretDeg(v);          // filtered -> control
     }
 
-    private void driveTurret(double dt, double tv) {
-        double err = target - deg;
-        double vel = (deg - lastDeg) / dt;
-        lastDeg = deg;
+    /**
+     * Bad pot, tags visible: the camera is the only angle sensor and it is ~50 ms late, so a normal
+     * controller overshoots and wobbles. Instead: short push sized to the error, stop, wait for a frame
+     * taken AFTER the push, push again. The push time per degree is learned from what each push did.
+     */
+    private void camOnlyTurret(double now, double err, double tv) {
+        if (msPerDeg < 0) msPerDeg = CAM_MS_PER_DEG_START;
+        double p = kV * tv;                                          // keep turning against the robot
+        if (now < pulseUntil) {
+            p += pulseSign * CAM_PULSE_POWER;
+        } else if (camFrameT > pulseUntil + 20) {                    // new picture since the push ended
+            if (pulseMs > 0) {                                       // learn from the last push
+                double moved = (errBeforePulse - err) * pulseSign;
+                if (moved > 0.3) msPerDeg += 0.5 * (pulseMs / moved - msPerDeg);
+                msPerDeg = Math.max(1, Math.min(50, msPerDeg));
+                pulseMs = 0;
+            }
+            if (Math.abs(err) > AIM_TOL_DEG / 2) {
+                pulseMs = Math.max(15, Math.min(150, Math.abs(err) * msPerDeg));
+                pulseSign = Math.signum(err);
+                errBeforePulse = err;
+                pulseUntil = now + pulseMs;
+                p += pulseSign * CAM_PULSE_POWER;
+            }
+        }
+        p = Math.max(-CAM_ONLY_MAX_POWER, Math.min(CAM_ONLY_MAX_POWER, p));
+        if (potOk && ((v >= Calib.V_LIMIT_MAX && -p > 0) || (v <= Calib.V_LIMIT_MIN && -p < 0))) p = 0;   // end stop
+        turret.setPower(-p);                                         // + deg (left) = lower pot V
+    }
+
+    /** err = turret error (deg, + = turn left). camOnly = aiming on the camera with a bad pot. */
+    private void driveTurret(double dt, double tv, double err, boolean camOnly) {
+        double vel = potOk ? (deg - lastDeg) / dt : tv;             // no pot: no damping term
+        if (potOk) lastDeg = deg;
         double p = kV * tv;
         if (Math.abs(err) > TOLERANCE_DEG) p += kP * err + kD * (tv - vel) + Math.copySign(kS, err);
-        p = -Math.max(-MAX_POWER, Math.min(MAX_POWER, p));          // + deg (left) = lower pot V
-        if ((v >= Calib.V_LIMIT_MAX && p > 0) || (v <= Calib.V_LIMIT_MIN && p < 0) || !potOk) p = 0;
+        double max = camOnly ? CAM_ONLY_MAX_POWER : MAX_POWER;
+        p = -Math.max(-max, Math.min(max, p));                      // + deg (left) = lower pot V
+        if (potOk && ((v >= Calib.V_LIMIT_MAX && p > 0) || (v <= Calib.V_LIMIT_MIN && p < 0))) p = 0;
+        if (!potOk && !camOnly) p = 0;                              // bad pot and no camera aim: hold
         turret.setPower(p);
     }
 

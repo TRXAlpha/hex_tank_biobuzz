@@ -97,6 +97,8 @@ public class AutoHelperTilted {
     public static double V_BACK = 1.5;
     public static double V_CENTER = 1.03;
     public static double V_FRONT = 0.663;
+    public static double GLITCH_V = 0.4;          // pot jump bigger than this in 1 loop = bad reading
+    public static int GLITCH_LOOPS = 3;           // ignore up to this many loops, then accept the new value
     public static double V_INIT = 0.663;   // init pose: 0.663 = forward (spre fata)
     public static double V_LIMIT_MAX = 1.75;
     public static double V_LIMIT_MIN = 0.5;
@@ -151,6 +153,8 @@ public class AutoHelperTilted {
     // ===================== TURRET STATE =====================
     private double v, deg, rawDeg, lastDeg;
     private boolean potOk = true;
+    private double goodRaw = -1;
+    private int badLoops = 0;
     private double minDeg, maxDeg;
     private double desired, lastDesired, target, targetVel;
     private boolean saturated = false, aiming = false;
@@ -415,7 +419,7 @@ public class AutoHelperTilted {
         flyVel = fly.getVelocity();            // fly.update() runs every loop in update()
         atSpeed = fly.isAtSpeed();
         // feed only on live vision: the odometry seed alone is not trusted
-        onTarget = aiming && tagsVisible() && !saturated && Math.abs(target - deg) <= AIM_TOL_DEG;
+        onTarget = potOk && aiming && tagsVisible() && !saturated && Math.abs(target - deg) <= AIM_TOL_DEG;
         boolean ready = atSpeed && onTarget;
         double p = (feed && ready) ? 1 : 0;
         intake.setPower(p);
@@ -540,7 +544,7 @@ public class AutoHelperTilted {
                 double agoMs = staleness + r.getCaptureLatency() + r.getTargetingLatency() + EXTRA_LATENCY_MS;
                 int iPose = lookup(now - agoMs);
                 int iPan  = lookup(now - agoMs - PAN_LAG_MS);
-                if (iPose >= 0 && iPan >= 0) processFrame(r, iPose, iPan, now);
+                if (iPose >= 0 && iPan >= 0 && potOk) processFrame(r, iPose, iPan, now);   // bad pot: frame not trusted
             }
         }
 
@@ -707,10 +711,19 @@ public class AutoHelperTilted {
         uy /= n;
     }
 
+    /** Same glitch filter as the teleop: a jump > GLITCH_V in one loop is ignored (turret holds) until it repeats. */
     private void readTurret() {
         double raw = pot.getVoltage();
-        potOk = raw > 0.03 && raw < 3.25;
-        if (!potOk) return;
+        boolean inRange = raw > 0.03 && raw < 3.25;
+        boolean jump = goodRaw >= 0 && Math.abs(raw - goodRaw) > GLITCH_V;
+        if (!inRange || jump) {
+            badLoops++;
+            if (!inRange || badLoops < GLITCH_LOOPS) { potOk = false; return; }   // ignore -> driveTurret holds
+            v = raw;                         // same new value GLITCH_LOOPS loops in a row -> it is real
+        }
+        badLoops = 0;
+        potOk = true;
+        goodRaw = raw;
         v += FILTER_ALPHA * (raw - v);
         rawDeg = turretDeg(raw);
         deg = turretDeg(v);

@@ -195,6 +195,26 @@ public class Run {
         check("RED teleop aims at red cells only", redShots > 0 && World.shots == 0);
         World.FIRST_TAG = 38; World.OTHER_TAGS = new int[]{30, 34, 42};
 
+        // ===================== P. POT FAILURE =====================
+        System.out.println("\n=== P. POT FAILURE (TELEOP AUTO-AIM BLUE) ===");
+        for (int mode = 1; mode <= 2; mode++) {
+            final int md = mode;
+            World.reset(); place(0, -150, 90 + 25, 0.663);
+            final double[] errAfter = {0}, jerk = {0}; final double[] lastW = {0};
+            run(TeleopAutoAimBlue::new, 8, (t, op) -> { World.POT_MODE = md; World.pad.right_trigger = t > 4 ? 1 : 0; },
+                op -> { if (World.t > run0 + 3) { errAfter[0] = Math.max(errAfter[0], Math.abs(World.aimErr()));
+                        jerk[0] = Math.max(jerk[0], Math.abs(World.potW - lastW[0])); } lastW[0] = World.potW; });
+            System.out.printf("   %s pot, tags visible: aim error after 3 s max %.2f deg, R2 shots %d (worst aim %.2f), turret jerk %.3f V/s per loop, screen: %s%n",
+                    md == 1 ? "SPIKING" : "DEAD", errAfter[0], World.shots, World.shotAimMax, jerk[0], tl("Turret aim"));
+            check((md == 1 ? "spiking" : "dead") + " pot: camera keeps the aim (< 3 deg) and R2 shoots", errAfter[0] < 3 && World.shots > 0 && World.shotAimMax < 3);
+        }
+        World.reset(); place(0, -150, 90, 0.663);
+        final double[] moved = {0}; final double[] pot0 = {World.potV};
+        run(TeleopAutoAimBlue::new, 3, (t, op) -> { World.POT_MODE = 2; World.CAMERA_BLOCKED = true; },
+            op -> moved[0] = Math.max(moved[0], Math.abs(World.potV - pot0[0])));
+        System.out.printf("   DEAD pot, no tags: turret moved %.3f V (want ~0), screen: %s%n", moved[0], tl("Turret aim"));
+        check("dead pot + no tags: turret holds still", moved[0] < 0.02);
+
         // ===================== C. BATTERY LIMITER =====================
         System.out.println("\n=== C. BATTERY LIMITER (driver slams full forward / back every 0.4 s, flywheel on) ===");
         // calibrated with the GOOD battery (file says 0.05 ohm); then the weak battery is plugged in

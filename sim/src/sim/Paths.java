@@ -10,6 +10,7 @@ public class Paths {
     static final double ROBOT_HALF = 22;             // cm, half the robot length (approx.)
 
     static double endX, endY, endH;
+    static boolean potStress = false;
     /** facing: "back" = back to the hive, "front" = front to the hive, "right" = hive on the robot's right. */
     static void auto(String name, Supplier<OpMode> mk, int tag, double startDistCm, String facing, double potV, double rbat) {
         World.reset(); World.RBAT = rbat; World.FIRST_TAG = tag;
@@ -21,7 +22,7 @@ public class Paths {
         final List<String> states = new ArrayList<>();
         final double[] minHive = {1e9}, ext = {1e9, -1e9, 1e9, -1e9};
         final StringBuilder track = new StringBuilder();
-        Run.run(mk, 30, (t, op) -> {}, op -> {
+        Run.run(mk, 30, (t, op) -> { if (potStress) World.POT_MODE = 1; }, op -> {
             String st = Run.tl("state");
             if (states.isEmpty() || !states.get(states.size() - 1).startsWith(st + " "))
                 states.add(String.format("%s @%.1fs", st, World.t - Run.run0));
@@ -41,7 +42,7 @@ public class Paths {
                 World.shots, Run.pct(), minHive[0], ext[0], ext[1], ext[2], ext[3]);
         System.out.println("   track every 3 s (x, y cm, heading):" + track);
         Run.check(name + ": path completed (DONE)", last.startsWith("DONE"));
-        Run.check(name + ": shot before driving", World.shots > 0);
+        if (!potStress) Run.check(name + ": shot before driving", World.shots > 0);
         Run.check(name + ": done inside the 30 s auto", last.startsWith("DONE") && Double.parseDouble(last.replaceAll(".*@([0-9.]+)s", "$1")) < 29);
         Run.check(name + ": never closer than 20 cm to the hive tags", minHive[0] > 20);
     }
@@ -69,6 +70,10 @@ public class Paths {
         auto("STRESS easy turning: tilt jos RED", tiltR, 30, 110, "back", 1.50, 0.05);
         auto("STRESS easy turning: parcare RED", org.firstinspires.ftc.teamcode.auto.red.AutoTrasParcareRed::new, 34, 110, "right", 1.03, 0.05);
         World.TURN_FRIC = 0.25;
+        // stress: pot spiking during the tilt auto (bad contact): must still finish the path
+        potStress = true;
+        auto("STRESS spiking pot: tilt jos RED", tiltR, 30, 110, "back", 1.50, 0.05);
+        potStress = false;
         System.out.println(Run.fails == 0 ? "\nALL PATH CHECKS PASSED" : "\nFAILED PATH CHECKS: " + Run.fails);
     }
 }

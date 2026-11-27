@@ -63,7 +63,11 @@ public class World {
     public static Object device(String n){ Object o = dev.get(n); if (o == null) throw new RuntimeException("no device " + n); return o; }
     static Motor m(String n){ return (Motor) dev.get(n); }
 
-    public static double potVolts(){ return potV + rnd.nextGaussian()*0.002; }
+    public static int POT_MODE = 0;            // 0 good, 1 random spikes (bad contact), 2 dead (reads 0 V)
+    public static double potVolts(){
+        if (POT_MODE == 2) return 0.0;
+        if (POT_MODE == 1 && rnd.nextDouble() < 0.08) return potV + (rnd.nextBoolean() ? 1 : -1) * (0.5 + rnd.nextDouble());
+        return potV + rnd.nextGaussian()*0.002; }
 
     // ---- turret angle model = same pot formula as the code (assumes calibration is right) ----
     public static double V_FRONT = 0.663, V_CENTER = 1.030, V_BACK = 1.500; public static boolean LATERAL_IS_LEFT = false;
@@ -176,6 +180,7 @@ public class World {
         pend.clear(); pendR.clear(); shots = 0; shotAimMax = 0; shotPct.clear(); feedT = 0; pad = new Gamepad(); tele = new Tele(); rnd = new Random(1);
         for (Object o : dev.values()) if (o instanceof Motor) { ((Motor) o).power = 0; ((Motor) o).dir = DcMotorSimple.Direction.FORWARD; ((Motor) o).amps = 0; ((Motor) o).zpb = DcMotor.ZeroPowerBehavior.FLOAT; }
         CAMERA_BLOCKED = false;
+        POT_MODE = 0;
     }
 
     public static class Tele implements Telemetry {
