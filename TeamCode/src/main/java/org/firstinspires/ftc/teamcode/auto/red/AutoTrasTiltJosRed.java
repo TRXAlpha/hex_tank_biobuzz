@@ -82,7 +82,7 @@ public class AutoTrasTiltJosRed extends OpMode {
 
         switch (state) {
             case WAIT_TAGS:
-                drive.setFlywheel(AutoHelperTilted.FLY_TARGET);   // pre-spin while waiting
+                drive.setFlywheel(Calib.SHOT_SPEED);   // pre-spin while waiting (same speed as teleop)
                 if (drive.tagsSeen()) {
                     statetimer.reset();
                     state = State.SHOOT;

@@ -54,7 +54,6 @@ public class AutoHelperTilted {
     public static double FF_JUMP_DEG = 15;
     public static double FILTER_ALPHA = 0.4;
     public static int FIRST_TAG = 30;
-    public static double FLY_TARGET = 1120;   // set from Calib.SHOT_SPEED in the constructor
     public static double HEADING_DEADBAND = 0.4;
     public static double HEADING_TIMEOUT_S = 1.5;       // heading fix longer than this ...
     public static double HEADING_GOOD_ENOUGH_DEG = 3;   // ... and within this -> done (stops a wobble from stalling the auto)
@@ -182,7 +181,6 @@ public class AutoHelperTilted {
         V_BACK = Calib.V_BACK;
         V_INIT = Calib.V_FRONT;                // this auto starts with the turret forward
         CAM_PITCH_DEG = Calib.CAM_PITCH_DEG;
-        FLY_TARGET = Calib.SHOT_SPEED;
         fly = new Flywheel(hardwareMap);       // battery-compensated speed control (same as teleop)
         power = new Power(hardwareMap);
         intake = hardwareMap.dcMotor.get("intake");
@@ -426,7 +424,7 @@ public class AutoHelperTilted {
     }
 
     /**
-     * Call every loop. Spins flywheel to FLY_TARGET, waits for speed + aim, then feeds (gated) for feedMs.
+     * Call every loop. Spins flywheel to Calib.SHOT_SPEED, waits for speed + aim, then feeds (gated) for feedMs.
      * Returns true when done; flywheel and stagiu are then off.
      */
     public boolean shootFor(double feedMs, Telemetry t) {
@@ -435,7 +433,7 @@ public class AutoHelperTilted {
             windowStarted = false;
             shootTimer.reset();
         }
-        setFlywheel(FLY_TARGET);
+        setFlywheel(Calib.SHOT_SPEED);
         boolean ready = updateShooter(windowStarted);
 
         if (!windowStarted && (ready || shootTimer.milliseconds() >= SPINUP_TIMEOUT_MS)) {

@@ -138,10 +138,7 @@ public class AutoHelper {
     public static double FF_JUMP_DEG = 15;
     public static double FILTER_ALPHA = 0.4;
     public static int FIRST_TAG = 34;
-    // Flywheel speed comes from Flywheel's distance table (tuner) using the hive distance.
-    // FLY_TARGET is only used if there is no hive center yet.
-    public static boolean FLY_FROM_DISTANCE = false;   // OFF until the distance is verified
-    public static double FLY_TARGET = 1120;
+    // Flywheel speed: ONE number for teleop, autos and calibration = Calib.SHOT_SPEED (ROBOT CALIBRATION step 3).
     public static double HEADING_DEADBAND = 0.4;
     public static double HEADING_TIMEOUT_S = 1.5;       // heading fix longer than this ...
     public static double HEADING_GOOD_ENOUGH_DEG = 3;   // ... and within this -> done (stops a wobble from stalling the auto)
@@ -270,7 +267,6 @@ public class AutoHelper {
         V_BACK = Calib.V_BACK;
         V_INIT = Calib.V_RIGHT;
         CAM_PITCH_DEG = Calib.CAM_PITCH_DEG;
-        FLY_TARGET = Calib.SHOT_SPEED;
         fly = new Flywheel(hardwareMap);
         power = new Power(hardwareMap);
         intake = hardwareMap.dcMotor.get("intake");
@@ -332,14 +328,13 @@ public class AutoHelper {
      *   firstTag       leftmost tag of the CELL: 30 red far, 34 red audience, 38 blue audience, 42 blue far
      *   vInit          turret pot V in INIT: 1.03 = side, 0.663 = forward
      *   feedNeedsTags  true = feed only while tags are seen live ("Tilted" behaviour)
-     *   flyTarget      flywheel ticks/s (used when FLY_FROM_DISTANCE = false)
-     * Example, behave like AutoHelperTilted:  drive.setup(30, 0.663, true, 1300);
+     * Example (turret forward, feed only on live tags):  drive.setup(30, 0.663, true);
+     * The flywheel speed is always Calib.SHOT_SPEED.
      */
-    public AutoHelper setup(int firstTag, double vInit, boolean feedNeedsTags, double flyTarget) {
+    public AutoHelper setup(int firstTag, double vInit, boolean feedNeedsTags) {
         FIRST_TAG = firstTag;
         V_INIT = vInit;
         FEED_NEEDS_TAGS = feedNeedsTags;
-        FLY_TARGET = flyTarget;
         return this;
     }
 
@@ -359,6 +354,7 @@ public class AutoHelper {
         refreshPose();
         poseFresh = true;
         updateTurret(t);
+        fly.update(power.volts());             // flywheel control every loop, same as teleop + AutoHelperTilted
     }
 
     private void ensurePose() {
@@ -523,8 +519,7 @@ public class AutoHelper {
 
     /** ShootSimple gating + turret on target. Returns true when ready to feed. */
     public boolean updateShooter(boolean feed) {
-        fly.update();                          // battery-compensated speed control + at-speed gating
-        flyVel = fly.getVelocity();
+        flyVel = fly.getVelocity();            // fly.update() runs every loop in update()
         atSpeed = fly.isAtSpeed();
         onTarget = aiming && !saturated && Math.abs(target - deg) <= AIM_TOL_DEG
                 && (!FEED_NEEDS_TAGS || tagsVisible());
@@ -536,7 +531,7 @@ public class AutoHelper {
     }
 
     /**
-     * Call every loop. Spins flywheel to FLY_TARGET, waits for speed + aim, then feeds (gated) for feedMs.
+     * Call every loop. Spins flywheel to Calib.SHOT_SPEED, waits for speed + aim, then feeds (gated) for feedMs.
      * Returns true when done; flywheel and stagiu are then off.
      */
     public boolean shootFor(double feedMs, Telemetry t) {
@@ -567,15 +562,16 @@ public class AutoHelper {
         return false;
     }
 
-    /** Speed from the distance table (turret pivot -> hive center), else FLY_TARGET. */
+    /** The one shot speed (Calib.SHOT_SPEED). Also updates the hive distance shown on the screen. */
     private double shotSpeed() {
-        if (!FLY_FROM_DISTANCE || !haveCenter || pose == null) return FLY_TARGET;
-        double rx = pose.getX(DistanceUnit.MM), ry = pose.getY(DistanceUnit.MM);
-        double rh = pose.getHeading(AngleUnit.RADIANS);
-        double mx = rx + MOUNT_X_MM * Math.cos(rh) - MOUNT_Y_MM * Math.sin(rh);
-        double my = ry + MOUNT_X_MM * Math.sin(rh) + MOUNT_Y_MM * Math.cos(rh);
-        shotDistCm = Math.hypot(cx - mx, cy - my) / 10.0;
-        return Flywheel.speedForDistance(shotDistCm);
+        if (haveCenter && pose != null) {
+            double rx = pose.getX(DistanceUnit.MM), ry = pose.getY(DistanceUnit.MM);
+            double rh = pose.getHeading(AngleUnit.RADIANS);
+            double mx = rx + MOUNT_X_MM * Math.cos(rh) - MOUNT_Y_MM * Math.sin(rh);
+            double my = ry + MOUNT_X_MM * Math.sin(rh) + MOUNT_Y_MM * Math.cos(rh);
+            shotDistCm = Math.hypot(cx - mx, cy - my) / 10.0;
+        }
+        return Calib.SHOT_SPEED;
     }
 
     public void stopShooter() {
