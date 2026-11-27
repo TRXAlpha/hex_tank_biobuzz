@@ -8,7 +8,7 @@ import com.qualcomm.robotcore.hardware.DcMotor;
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 
-@TeleOp(name="teleop debug", group="debugging")
+//@TeleOp(name="teleop debug", group="debugging")
 public class teleopDebug extends OpMode {
     private DcMotor stanga, dreapta, intake;
     GoBildaPinpointDriver pinpoint;

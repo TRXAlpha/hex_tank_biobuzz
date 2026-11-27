@@ -145,7 +145,7 @@ public class AutoHelper {
     public static double HEADING_DEADBAND = 0.4;
     public static double HEADING_KD = 0.002;
     public static double HEADING_KP = 0.55;
-    public static double HEADING_KS = 0.35;
+    public static double HEADING_KS = 0.3;
     public static double HEADING_LOCK_DEG = 5;
     public static double HEADING_MAX_POWER = 1;
     public static double HEADING_SETTLE_RATE = 15;
@@ -840,7 +840,7 @@ public class AutoHelper {
         if ((v >= V_LIMIT_MAX && motorPower > 0) || (v <= V_LIMIT_MIN && motorPower < 0)) motorPower = 0;
         if (!potOk) motorPower = 0;
 
-        turret.setPower(motorPower);
+//        turret.setPower(motorPower);
     }
 
     private double turretDeg(double volts) {
