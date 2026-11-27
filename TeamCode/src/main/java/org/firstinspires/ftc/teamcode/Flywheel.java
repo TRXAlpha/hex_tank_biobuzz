@@ -5,6 +5,7 @@ import com.qualcomm.robotcore.hardware.DcMotorEx;
 import com.qualcomm.robotcore.hardware.DcMotorSimple;
 import com.qualcomm.robotcore.hardware.HardwareMap;
 import com.qualcomm.robotcore.hardware.VoltageSensor;
+import com.qualcomm.robotcore.util.ElapsedTime;
 
 /*
  * Flywheel (turelaD + turelaS) with BATTERY-COMPENSATED speed control. Same class in calibration, teleop and auto.
@@ -25,6 +26,10 @@ public class Flywheel {
     public static double READY_BAND = 0.01;  // "at speed" = within +/-1 %
     public static double SHOT_DIP = 0.025;   // below 97.5 % = ball left / not ready
     public static double OVER_BAND = 0.02;   // above 102 % = too fast
+    // After a spin-up (from under SPUN_DOWN of the target) the speed must hold READY_BAND this long before the
+    // first ball: the encoders are on the motors, the wheel itself lags behind. Ball-to-ball recovery is not slowed.
+    public static double SPINUP_HOLD_MS = 500;
+    public static double SPUN_DOWN = 0.90;
 
     public static final double NOMINAL_V = 12.0;
 
@@ -32,7 +37,9 @@ public class Flywheel {
     private final VoltageSensor battery;
     private double target = 0, vel = 0, volts = NOMINAL_V, power = 0;
     private long lastVoltNs = 0;                 // own battery read: every 100 ms (slow read)
-    private boolean on = false, atSpeed = false;
+    private boolean on = false, atSpeed = false, spunUp = false;
+    private boolean inBandBefore = false;
+    private final ElapsedTime inBandTimer = new ElapsedTime();
 
     public Flywheel(HardwareMap hw) {
         d = hw.get(DcMotorEx.class, "turelaD");
@@ -77,12 +84,18 @@ public class Flywheel {
         if (!on || target <= 0) {
             power = 0;
             atSpeed = false;
+            spunUp = false;
         } else {
             power = (Calib.KS + Calib.KV * target) * NOMINAL_V / volts + Calib.KP * (target - vel);
             power = Math.max(0, Math.min(1, power));
             double lo = target * (1 - SHOT_DIP), hi = target * (1 + OVER_BAND);
-            if (vel < lo || vel > hi) atSpeed = false;
-            else if (Math.abs(vel - target) <= target * READY_BAND) atSpeed = true;
+            boolean inBand = Math.abs(vel - target) <= target * READY_BAND;
+            if (inBand && !inBandBefore) inBandTimer.reset();
+            inBandBefore = inBand;
+            if (vel < target * SPUN_DOWN) spunUp = false;                 // (re)starting: wait for the wheel
+            if (inBand && !spunUp && inBandTimer.milliseconds() >= SPINUP_HOLD_MS) spunUp = true;
+            if (vel < lo || vel > hi || !spunUp) atSpeed = false;
+            else if (inBand) atSpeed = true;
         }
         d.setPower(power);
         s.setPower(power);
