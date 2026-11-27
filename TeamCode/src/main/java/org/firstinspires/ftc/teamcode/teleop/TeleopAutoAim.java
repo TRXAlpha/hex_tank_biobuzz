@@ -34,6 +34,8 @@ import org.firstinspires.ftc.teamcode.Flywheel;
  *   Circle hold    unjam (intake + stagiu reverse)
  *   Square         flywheel on/off (on at start)
  *   Share          forget the CELL and scan again (if the turret aims at the wrong place)
+ *   Cross          (POT_BROKEN only) R2 mode: FEED ALWAYS (start) <-> WAIT FOR SPEED (FIXED_SPEED +/- SPEED_TOL)
+ * POT_BROKEN = true: turret locked at FIXED_DEG, no aim checks, no auto-fire. R2 = feed when YOU decide.
  * INIT: D-pad LEFT = RED, D-pad RIGHT = BLUE.
  *
  * HOW IT AIMS, every new camera frame:
@@ -71,20 +73,26 @@ public class TeleopAutoAim extends OpMode {
     public static double MAX_POWER = 1, kP = 0.006, kD = 0.0002, kS = 0.2, kV = 0.0015;
     public static double TOLERANCE_DEG = 1.5, FILTER_ALPHA = 0.4;
 
+    // ---------- POT BROKEN: turret locked, no auto-aim, driver aims with the robot ----------
+    public static boolean POT_BROKEN = true;      // true = ignore the pot, no aim checks, no auto-fire
+    public static double FIXED_DEG = 0;           // locked turret angle, robot frame: 0 = front, CCW (left) = +
+    public static boolean WAIT_FOR_SPEED_AT_START = false;   // Cross toggles: R2 waits for speed / R2 feeds always
+
     // ---------- shooting ----------
     public static double AIM_TOL_DEG = 3;
     public static double AIM_SETTLE_MS = 100;    // must stay on target this long before a shot
     public static int FIRE_MIN_TAGS = 2;
     public static boolean AUTO_FIRE_AT_START = false;   // Triangle toggles it during the match
-    public static boolean SPEED_FROM_DISTANCE = true;   // false = always FIXED_SPEED, no distance check
-    public static double FIXED_SPEED = 1300;
+    public static boolean SPEED_FROM_DISTANCE = false;  // false = always FIXED_SPEED, no distance check
+    public static double FIXED_SPEED = 1150;
+    public static double SPEED_TOL = 5;                 // at speed = |vel - target| <= this (POT_BROKEN mode)
 
     private DcMotor stanga, dreapta, turret, intake, stagiu;
     private AnalogInput pot;
     private Limelight3A ll;
     private GoBildaPinpointDriver odo;
     private Flywheel fw;
-    private boolean red = false, flyFile, pSquare, pTriangle, autoFire;
+    private boolean red = false, flyFile, pSquare, pTriangle, autoFire, pCross, waitSpeed = false;
     private double scanDir = 1, onSince = -1;
 
     // aim
@@ -147,7 +155,7 @@ public class TeleopAutoAim extends OpMode {
         minDeg = Math.min(a, b);
         maxDeg = Math.max(a, b);
         v = pot.getVoltage();
-        deg = rawDeg = lastDeg = target = turretDeg(v);
+        deg = rawDeg = lastDeg = target = POT_BROKEN ? FIXED_DEG : turretDeg(v);
     }
 
     @Override
@@ -165,6 +173,7 @@ public class TeleopAutoAim extends OpMode {
     public void start() {
         fw.setOn(true);
         autoFire = AUTO_FIRE_AT_START;
+        waitSpeed = WAIT_FOR_SPEED_AT_START;
         clock.reset();
         lastMs = 0;
     }
@@ -174,12 +183,6 @@ public class TeleopAutoAim extends OpMode {
         double now = clock.milliseconds(), dt = (now - lastMs) / 1000.0;
         lastMs = now;
         if (dt <= 0) return;
-
-        // ---------- drive ----------
-        double fwd = gamepad1.left_stick_y, turn = -gamepad1.right_stick_x;
-        double m = Math.max(1, Math.abs(fwd) + Math.abs(turn));
-        stanga.setPower((fwd + turn) / m);
-        dreapta.setPower((fwd - turn) / m);
 
         // ---------- sensors ----------
         odo.update();
@@ -205,7 +208,15 @@ public class TeleopAutoAim extends OpMode {
 
         // ---------- turret: aim at the CELL point with odometry ----------
         double tv = 0;
-        if (haveAim) {
+        if (POT_BROKEN) {                                  // turret locked: target = where the CELL is
+            if (haveAim) {
+                dist = Math.hypot(fx - x, fy - y) / 10.0;
+                target = AngleUnit.normalizeDegrees(Math.toDegrees(Math.atan2(fy - y, fx - x) - head));
+            } else {
+                target = FIXED_DEG;
+            }
+            saturated = false;
+        } else if (haveAim) {
             dist = Math.hypot(fx - x, fy - y) / 10.0;
             double want = AngleUnit.normalizeDegrees(Math.toDegrees(Math.atan2(fy - y, fx - x) - head));
             target = reachable(want);
@@ -219,20 +230,31 @@ public class TeleopAutoAim extends OpMode {
             tv = scanDir * SCAN_DEG_S;
         }
         if (gamepad1.share) { haveAim = false; tags = 0; }    // forget -> scan again
-        driveTurret(dt, tv);
+        if (POT_BROKEN) turret.setPower(0); else driveTurret(dt, tv);
+        double aimErr = AngleUnit.normalizeDegrees(target - deg);   // + = CELL is left of the shot line
+        boolean hold = gamepad1.right_trigger > 0.5;
+
+        // ---------- drive ----------
+        double fwd = gamepad1.left_stick_y, turn = -gamepad1.right_stick_x;
+        double m = Math.max(1, Math.abs(fwd) + Math.abs(turn));
+        stanga.setPower((fwd + turn) / m);
+        dreapta.setPower((fwd - turn) / m);
 
         // ---------- flywheel ----------
         if (gamepad1.square && !pSquare) fw.setOn(!fw.isOn());
         pSquare = gamepad1.square;
         if (gamepad1.triangle && !pTriangle) autoFire = !autoFire;
         pTriangle = gamepad1.triangle;
-        boolean hold = gamepad1.right_trigger > 0.5;
+        if (gamepad1.cross && !pCross) waitSpeed = !waitSpeed;
+        pCross = gamepad1.cross;
+        if (POT_BROKEN) autoFire = false;                 // auto-fire needs aim -> off
         if (hold) fw.setOn(true);
         fw.setTarget(SPEED_FROM_DISTANCE && haveAim ? Flywheel.speedForDistance(dist) : FIXED_SPEED);
         fw.update();
+        boolean atSpeed = fw.isOn() && Math.abs(fw.getVelocity() - fw.getTarget()) <= SPEED_TOL;
 
         // ---------- auto-fire decision ----------
-        boolean onTarget = haveAim && !saturated && Math.abs(target - deg) <= AIM_TOL_DEG;
+        boolean onTarget = haveAim && !saturated && Math.abs(aimErr) <= AIM_TOL_DEG;
         if (!onTarget) onSince = -1; else if (onSince < 0) onSince = now;
         boolean steady = onTarget && now - onSince >= AIM_SETTLE_MS;
         boolean ok = false;
@@ -243,10 +265,14 @@ public class TeleopAutoAim extends OpMode {
         else if (SPEED_FROM_DISTANCE && dist < Flywheel.MIN_SHOT_CM)   why = "TOO CLOSE - back up";
         else if (SPEED_FROM_DISTANCE && dist > Flywheel.MAX_SHOT_CM)   why = "TOO FAR - get closer";
         else if (saturated)                                            why = "turret at limit - turn robot";
-        else if (!steady)                                              why = "aiming";
+        else if (!steady)                                              why = POT_BROKEN
+                ? String.format("turn robot %s %.0f deg", aimErr > 0 ? "LEFT" : "RIGHT", Math.abs(aimErr))
+                : "aiming";
         else if (!fw.isAtSpeed())                                      why = "speeding up";
         else { why = "FIRE"; ok = true; }
-        boolean feed = fw.isAtSpeed() && ((autoFire && ok) || (hold && (!haveAim || steady)));
+        boolean feed = POT_BROKEN
+                ? hold && fw.isOn() && (!waitSpeed || atSpeed)                 // driver decides
+                : fw.isAtSpeed() && ((autoFire && ok) || (hold && (!haveAim || steady)));
 
         // ---------- intake + stagiu (one write each per loop) ----------
         if (gamepad1.circle)  { intake.setPower(-1); stagiu.setPower(-1); }
@@ -254,13 +280,21 @@ public class TeleopAutoAim extends OpMode {
         else                  { intake.setPower(gamepad1.left_bumper ? 1 : 0); stagiu.setPower(0); }
 
         // ---------- screen ----------
-        telemetry.addData("AUTO-FIRE (Triangle)", autoFire ? "ON" : "OFF - hold R2 to shoot");
-        telemetry.addData("SHOOT", hold ? (feed ? "R2: FIRING" : "R2: waiting for " + (fw.isAtSpeed() ? "aim" : "speed")) : why);
+        if (POT_BROKEN) {
+            telemetry.addData("R2 MODE (Cross)", waitSpeed ? "WAIT FOR SPEED" : "FEED ALWAYS");
+            telemetry.addData("SHOOT", hold ? (feed ? "R2: FIRING" : "R2: waiting for speed")
+                    : (atSpeed ? "READY" : "speeding up"));
+            telemetry.addData("Speed error", "%.0f (tol %.0f)", fw.getVelocity() - fw.getTarget(), SPEED_TOL);
+        } else {
+            telemetry.addData("AUTO-FIRE (Triangle)", autoFire ? "ON" : "OFF - hold R2 to shoot");
+            telemetry.addData("SHOOT", hold ? (feed ? "R2: FIRING" : "R2: waiting for " + (fw.isAtSpeed() ? "aim" : "speed")) : why);
+        }
         telemetry.addData("Tags / dist", "%d / %.0f cm", tags, dist);
         telemetry.addData("Camera dist (last frame)", "%.0f cm", camDist);
         telemetry.addData("Odometry x / y / heading", "%.0f / %.0f mm / %.0f deg", x, y, Math.toDegrees(head));
         telemetry.addData("Speed", "%.0f / %.0f", fw.getVelocity(), fw.getTarget());
-        telemetry.addData("Turret", "%.1f -> %.1f deg%s", deg, target, potOk ? "" : "  POT ERROR");
+        telemetry.addData("Turret", "%.1f -> %.1f deg%s", deg, target,
+                POT_BROKEN ? "  LOCKED (pot off)" : potOk ? "" : "  POT ERROR");
         telemetry.addData("Battery", "%.2f V%s", fw.getVolts(), fw.getVolts() < 10 ? "  LOW" : "");
         telemetry.addData("Loop", "%.0f ms", dt * 1000);
         telemetry.update();
@@ -331,6 +365,7 @@ public class TeleopAutoAim extends OpMode {
     // ===================== turret =====================
 
     private void readTurret() {
+        if (POT_BROKEN) { potOk = true; v = V_CENTER; deg = rawDeg = FIXED_DEG; return; }
         double raw = pot.getVoltage();
         potOk = raw > 0.03 && raw < 3.25;
         if (!potOk) return;
@@ -348,7 +383,7 @@ public class TeleopAutoAim extends OpMode {
         p = Math.max(-MAX_POWER, Math.min(MAX_POWER, p));
         p = LATERAL_IS_LEFT ? p : -p;                               // deg space -> "+ raises pot V"
         if ((v >= V_LIMIT_MAX && p > 0) || (v <= V_LIMIT_MIN && p < 0) || !potOk) p = 0;
-        turret.setPower(p);
+//        turret.setPower(p);
     }
 
     /** Closest reachable turret angle to want (tries want and want +/- 360). */
@@ -366,7 +401,7 @@ public class TeleopAutoAim extends OpMode {
     private double turretDeg(double volts) {
         double p = potAngleDeg(volts), pC = potAngleDeg(V_CENTER);
         double old = p <= pC ? (p - pC) / (pC - potAngleDeg(V_BACK)) * 90.0
-                             : (p - pC) / (potAngleDeg(V_FRONT) - pC) * 90.0;
+                : (p - pC) / (potAngleDeg(V_FRONT) - pC) * 90.0;
         double d = 90.0 - old;
         return LATERAL_IS_LEFT ? d : -d;
     }

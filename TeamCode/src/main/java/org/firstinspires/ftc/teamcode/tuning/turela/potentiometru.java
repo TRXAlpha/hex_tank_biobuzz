@@ -6,8 +6,8 @@ import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 import com.qualcomm.robotcore.hardware.AnalogInput;
 import com.qualcomm.robotcore.hardware.DcMotor;
 
-//@TeleOp(name = "tuning potentiometru", group = "tuning")
-//@Config
+@TeleOp(name = "tuning potentiometru", group = "tuning")
+@Config
 public class potentiometru extends OpMode {
     AnalogInput potTurela;
     @Override
