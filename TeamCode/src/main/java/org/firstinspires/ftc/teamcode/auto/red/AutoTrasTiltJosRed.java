@@ -13,7 +13,7 @@ import org.firstinspires.ftc.teamcode.auto.helpere.AutoHelperTilted;
 
 // Aims at tag cluster 30 (RED far CELL).
 @Config
-@Autonomous(name = "auto tras tilt jos RED")
+@Autonomous(name = "auto tras tilt jos RED", group = "RED")
 public class AutoTrasTiltJosRed extends OpMode {
 
     // ---------- start pose ----------
@@ -28,16 +28,16 @@ public class AutoTrasTiltJosRed extends OpMode {
 
     // ---------- normal route ----------
     public static double heading_first = 0;
-    public static double x_first = -230;
+    public static double x_first = 230;
     public static double y_first = 0;
     public static double heading_final = -90;
-    public static double x_final = -410;
-    public static double y_final = 1100;
+    public static double x_final = 410;
+    public static double y_final = -1100;
 
     // ---------- fallback park (SET THESE) ----------
     public static double heading_park = -90;
-    public static double x_park = -410;
-    public static double y_park = 1100;
+    public static double x_park = 410;
+    public static double y_park = -1100;
 
     private enum State {WAIT_TAGS, SHOOT, GO_FIRST, GO_FINAL, PARK, DONE}
 

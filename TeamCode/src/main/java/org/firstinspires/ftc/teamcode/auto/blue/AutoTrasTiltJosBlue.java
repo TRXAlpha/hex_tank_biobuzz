@@ -14,7 +14,7 @@ import org.firstinspires.ftc.teamcode.auto.helpere.AutoHelperTilted;
 // BLUE: the path values below are a COPY of the RED ones. Tune them on the blue side.
 // Aims at tag cluster 42 (BLUE far CELL).
 @Config
-@Autonomous(name = "auto tras tilt jos BLUE")
+@Autonomous(name = "auto tras tilt jos BLUE", group = "BLUE")
 public class AutoTrasTiltJosBlue extends OpMode {
 
     // ---------- start pose ----------

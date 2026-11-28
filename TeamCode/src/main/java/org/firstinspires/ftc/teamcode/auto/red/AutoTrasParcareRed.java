@@ -14,7 +14,7 @@ import org.firstinspires.ftc.teamcode.auto.helpere.AutoHelper;
 
 // Aims at tag cluster 34 (RED audience CELL).
 @Config
-@Autonomous(name = "auto tras parcare RED")
+@Autonomous(name = "auto tras parcare RED", group = "RED")
 public class AutoTrasParcareRed extends OpMode {
     public static double SHOOT_MS = 5000;   // gated feed window after flywheel at speed + turret on target
 

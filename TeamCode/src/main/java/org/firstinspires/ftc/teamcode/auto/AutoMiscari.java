@@ -12,7 +12,7 @@ import org.firstinspires.ftc.robotcore.external.navigation.UnnormalizedAngleUnit
 import org.firstinspires.ftc.teamcode.auto.helpere.AutoHelper;
 
 // Same setup as AutoTrasParcare, but it only reads the Pinpoint so targets can be measured by hand
-@Autonomous(name = "auto miscari")
+@Autonomous(name = "auto miscari", group = "debugging")
 
 public class AutoMiscari extends OpMode {
     private AutoHelper drive;

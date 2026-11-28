@@ -46,7 +46,7 @@ import java.util.List;
  * Before the first sighting the turret sweeps its range. All physical values come from Calib (ROBOT CALIBRATION).
  */
 @Config
-@TeleOp(name = "TELEOP AUTO-AIM RED", group = "turela")
+@TeleOp(name = "TELEOP AUTO-AIM RED", group = "RED")
 public class TeleopAutoAimRed extends OpMode {
 
     // ---------- vision ----------

@@ -15,7 +15,7 @@ import org.firstinspires.ftc.teamcode.auto.helpere.AutoHelper;
 // BLUE: the path values below are a COPY of the RED ones. Tune them on the blue side.
 // Aims at tag cluster 38 (BLUE audience CELL).
 @Config
-@Autonomous(name = "auto tras parcare BLUE")
+@Autonomous(name = "auto tras parcare BLUE", group = "BLUE")
 public class AutoTrasParcareBlue extends OpMode {
     public static double SHOOT_MS = 5000;   // gated feed window after flywheel at speed + turret on target
 

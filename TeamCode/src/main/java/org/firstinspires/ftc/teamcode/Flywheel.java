@@ -25,13 +25,17 @@ import com.qualcomm.robotcore.util.ElapsedTime;
 @Config
 public class Flywheel {
     // ---- feed gating ----
-    public static double READY_BAND = 0.01;  // "at speed" = within +/-1 %
+    public static double READY_BAND = 0.03;  // "at speed" = within +/-1 %
     public static double SHOT_DIP = 0.025;   // below 97.5 % = ball left / not ready
     public static double OVER_BAND = 0.02;   // above 102 % = too fast
     // After a spin-up (from under SPUN_DOWN of the target) the speed must hold READY_BAND this long before the
     // first ball: the encoders are on the motors, the wheel itself lags behind. Ball-to-ball recovery is not slowed.
     public static double SPINUP_HOLD_MS = 500;
     public static double SPUN_DOWN = 0.95;   // under 95 % (target -5 %) = the wheel must settle again (includes ball dips)
+
+
+
+
 
     // Never give the flywheel more than this many volts (power x battery). A full battery then pushes exactly
     // like a half-full one: same spin-up, same speed loss while a ball goes through. 0 = no cap.

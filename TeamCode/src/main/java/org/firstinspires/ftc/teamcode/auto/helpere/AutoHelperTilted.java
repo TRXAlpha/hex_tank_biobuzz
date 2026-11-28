@@ -53,10 +53,11 @@ public class AutoHelperTilted {
     public static double FF_ALPHA = 0.3;
     public static double FF_JUMP_DEG = 15;
     public static double FILTER_ALPHA = 0.4;
-    public static int FIRST_TAG = 30;
+    public static int FIRST_TAG = 42;
+    public static int GLITCH_LOOPS = 3;
+    public static double GLITCH_V = 0.4;
     public static double HEADING_DEADBAND = 0.4;
-    public static double HEADING_TIMEOUT_S = 1.5;       // heading fix longer than this ...
-    public static double HEADING_GOOD_ENOUGH_DEG = 3;   // ... and within this -> done (stops a wobble from stalling the auto)
+    public static double HEADING_GOOD_ENOUGH_DEG = 3;
     public static double HEADING_KD = 0.002;
     public static double HEADING_KP = 0.55;
     public static double HEADING_KS = 0.35;
@@ -64,6 +65,7 @@ public class AutoHelperTilted {
     public static double HEADING_MAX_POWER = 1;
     public static double HEADING_SETTLE_RATE = 15;
     public static double HEADING_TANH_SCALE = 2;
+    public static double HEADING_TIMEOUT_S = 1.5;
     public static double HIVE_DIST_MM = 1500;
     public static double INIT_MAX_POWER = 1;
     public static double JUMP_RESET_MM = 400;
@@ -94,18 +96,17 @@ public class AutoHelperTilted {
     public static double TURRET_LOOKAHEAD_MS = 30;
     public static double TURRET_MAX_POWER = 1;
     public static double VISION_TIMEOUT_MS = 200;
-    public static double V_BACK = 1.5;
-    public static double V_CENTER = 1.03;
-    public static double V_FRONT = 0.663;
-    public static double GLITCH_V = 0.4;          // pot jump bigger than this in 1 loop = bad reading
-    public static int GLITCH_LOOPS = 3;           // ignore up to this many loops, then accept the new value
-    public static double V_INIT = 0.663;   // init pose: 0.663 = forward (spre fata)
+    public static double V_BACK = 1.597;
+    public static double V_CENTER = 1.1;
+    public static double V_FRONT = 0.727;
+    public static double V_INIT = 1.597;
     public static double V_LIMIT_MAX = 1.75;
     public static double V_LIMIT_MIN = 0.5;
     public static double kD = 0.0002;
     public static double kP = 0.006;
     public static double kS = 0.2;
     public static double kV = 0.0015;
+    public static double FLY_TARGET = 1110;
 
     // ===================== HARDWARE =====================
     private final DcMotor stanga;
@@ -437,7 +438,7 @@ public class AutoHelperTilted {
             windowStarted = false;
             shootTimer.reset();
         }
-        setFlywheel(Calib.SHOT_SPEED);
+        setFlywheel(FLY_TARGET); //Calib.SHOT_SPEED
         boolean ready = updateShooter(windowStarted);
 
         if (!windowStarted && (ready || shootTimer.milliseconds() >= SPINUP_TIMEOUT_MS)) {
@@ -745,7 +746,7 @@ public class AutoHelperTilted {
         if ((v >= V_LIMIT_MAX && motorPower > 0) || (v <= V_LIMIT_MIN && motorPower < 0)) motorPower = 0;
         if (!potOk) motorPower = 0;
 
-        turret.setPower(motorPower);
+//        turret.setPower(motorPower);
     }
 
     private double turretDeg(double volts) {
