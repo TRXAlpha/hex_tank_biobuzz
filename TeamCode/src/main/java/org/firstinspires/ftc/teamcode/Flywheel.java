@@ -31,6 +31,10 @@ public class Flywheel {
     public static double SPINUP_HOLD_MS = 500;
     public static double SPUN_DOWN = 0.95;   // under 95 % (target -5 %) = the wheel must settle again (includes ball dips)
 
+    // Never give the flywheel more than this many volts (power x battery). A full battery then pushes exactly
+    // like a half-full one: same spin-up, same speed loss while a ball goes through. 0 = no cap.
+    public static double V_CAP = 11.0;
+
     public static final double NOMINAL_V = 12.0;
 
     private final DcMotorEx d, s;
@@ -88,6 +92,7 @@ public class Flywheel {
         } else {
             power = (Calib.KS + Calib.KV * target) * NOMINAL_V / volts + Calib.KP * (target - vel);
             power = Math.max(0, Math.min(1, power));
+            if (V_CAP > 0) power = Math.min(power, V_CAP / volts);   // same push on every battery
             double lo = target * (1 - SHOT_DIP), hi = target * (1 + OVER_BAND);
             boolean inBand = Math.abs(vel - target) <= target * READY_BAND;
             if (inBand && !inBandBefore) inBandTimer.reset();
