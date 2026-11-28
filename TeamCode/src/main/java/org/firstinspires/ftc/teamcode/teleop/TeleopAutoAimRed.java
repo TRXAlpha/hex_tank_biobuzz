@@ -45,8 +45,8 @@ import java.util.List;
  * when the picture was taken. Between frames / without tags the turret aims at that point with odometry.
  * Before the first sighting the turret sweeps its range. All physical values come from Calib (ROBOT CALIBRATION).
  */
-@Config
-@TeleOp(name = "TELEOP AUTO-AIM RED", group = "RED")
+//@Config
+//@TeleOp(name = "TELEOP AUTO-AIM RED", group = "RED")
 public class TeleopAutoAimRed extends OpMode {
 
     // ---------- vision ----------
