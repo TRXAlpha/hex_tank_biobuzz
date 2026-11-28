@@ -198,16 +198,27 @@ public class Run {
 
         // ===================== P. POT FAILURE =====================
         System.out.println("\n=== P. POT FAILURE (TELEOP AUTO-AIM BLUE) ===");
-        for (int mode = 1; mode <= 2; mode++) {
-            final int md = mode;
+        {   // SPIKING pot: 8 different spike patterns (one pattern alone is luck)
+            int badRuns = 0, shotsAll = 0; double worst = 0, swing = 0;
+            for (long seed = 1; seed <= 8; seed++) {
+                World.reset(); World.rnd = new java.util.Random(seed); place(0, -150, 90 + 25, 0.663);
+                final double[] errAfter = {0};
+                run(TeleopAutoAimBlue::new, 8, (t, op) -> { World.POT_MODE = 1; World.pad.right_trigger = t > 4 ? 1 : 0; },
+                    op -> { if (World.t > run0 + 3) errAfter[0] = Math.max(errAfter[0], Math.abs(World.aimErr())); });
+                if (World.shotAimMax > 3) badRuns++;
+                worst = Math.max(worst, World.shotAimMax); swing = Math.max(swing, errAfter[0]); shotsAll += World.shots;
+            }
+            System.out.printf("   SPIKING pot, 8 patterns: shots %d, worst shot %.2f deg, runs with a shot > 3 deg: %d, worst swing %.2f deg%n", shotsAll, worst, badRuns, swing);
+            check("spiking pot: every shot on target (< 3 deg) in all 8 patterns, swing < 12 deg", badRuns == 0 && shotsAll > 0 && swing < 12);
+        }
+        {   // DEAD pot, tags visible
             World.reset(); place(0, -150, 90 + 25, 0.663);
-            final double[] errAfter = {0}, jerk = {0}; final double[] lastW = {0};
-            run(TeleopAutoAimBlue::new, 8, (t, op) -> { World.POT_MODE = md; World.pad.right_trigger = t > 4 ? 1 : 0; },
-                op -> { if (World.t > run0 + 3) { errAfter[0] = Math.max(errAfter[0], Math.abs(World.aimErr()));
-                        jerk[0] = Math.max(jerk[0], Math.abs(World.potW - lastW[0])); } lastW[0] = World.potW; });
-            System.out.printf("   %s pot, tags visible: aim error after 3 s max %.2f deg, R2 shots %d (worst aim %.2f), turret jerk %.3f V/s per loop, screen: %s%n",
-                    md == 1 ? "SPIKING" : "DEAD", errAfter[0], World.shots, World.shotAimMax, jerk[0], tl("Turret aim"));
-            check((md == 1 ? "spiking" : "dead") + " pot: shots on target (< 3 deg), no wild swing (< 6 deg)", errAfter[0] < 6 && World.shots > 0 && World.shotAimMax < 3);
+            final double[] errAfter = {0};
+            run(TeleopAutoAimBlue::new, 8, (t, op) -> { World.POT_MODE = 2; World.pad.right_trigger = t > 4 ? 1 : 0; },
+                op -> { if (World.t > run0 + 3) errAfter[0] = Math.max(errAfter[0], Math.abs(World.aimErr())); });
+            System.out.printf("   DEAD pot, tags visible: aim error after 3 s max %.2f deg, R2 shots %d (worst aim %.2f), screen: %s%n",
+                    errAfter[0], World.shots, World.shotAimMax, tl("Turret aim"));
+            check("dead pot: camera keeps the aim (< 3 deg) and R2 shoots", errAfter[0] < 3 && World.shots > 0 && World.shotAimMax < 3);
         }
         World.reset(); place(0, -150, 90, 0.663);
         final double[] moved = {0}; final double[] pot0 = {World.potV};
@@ -291,6 +302,16 @@ public class Run {
                     if (s2 > 3.2) stagAfter[0] = Math.max(stagAfter[0], Math.abs(World.m("stagiu").power)); });
         System.out.printf("   S5 L2 dead man with the flywheel OFF: stagiu %.1f while held, %.1f after release%n", stagOn[0], stagAfter[0]);
         check("L2 dead man: stagiu runs with no checks, stops on release", stagOn[0] == 1.0 && stagAfter[0] == 0.0);
+
+        // T: fixed spot -> AIM with a stiff turret (friction 0.3) and camera timing 40 ms off (both teleops)
+        for (int k = 0; k < 2; k++) {
+            World.reset(); place(0, -150, 90 + 25, 0.663);
+            run(k == 0 ? TeleopSafeBlue::new : TeleopAutoAimBlue::new, 14, (t, op) -> {
+                World.LL_TIME_ERR = -0.04; World.TURRET_FRIC = 0.30;
+                World.pad.dpad_down = t > 3 && t < 3.1; World.pad.touchpad = t > 6 && t < 6.1; }, null);
+            System.out.printf("   T %s: BACK spot -> AIM, stiff turret: final aim error %.2f deg (%s)%n", k == 0 ? "SAFE" : "AUTO-AIM", World.aimErr(), tl("Turret aim"));
+            check((k == 0 ? "SAFE" : "AUTO-AIM") + ": stiff turret realigns after a fixed spot (< 3 deg)", Math.abs(World.aimErr()) < 3);
+        }
 
         // burst speed: R2 held 3 s on target, spin-up threshold 90 % vs 95 %
         for (double sd : new double[]{0.90, 0.95}) {

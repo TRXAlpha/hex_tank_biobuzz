@@ -65,6 +65,8 @@ public class World {
 
     public static int POT_MODE = 0;            // 0 good, 1 random spikes (bad contact), 2 dead (reads 0 V)
     public static double POT_OFFSET = 0;       // slipped pot: reads this many volts off (smoothly)
+    public static double TURRET_FRIC = 0.08;   // turret power lost to friction (stiff turret: 0.3)
+    public static double LL_TIME_ERR = 0;      // s: pictures really taken this much earlier than the Limelight says
     public static boolean TURRET_JAMMED = false, ODO_FROZEN = false, ODO_FAULT = false;
     public static double potVolts(){
         if (POT_MODE == 2) return 0.0;
@@ -114,7 +116,7 @@ public class World {
         double c = Math.cos(-oh), s = Math.sin(-oh);
         if (!ODO_FROZEN) { odx += dxr*c - dyr*s; ody += dxr*s + dyr*c; odh = wrap(h - oh + ODO_HEAD_DRIFT*t); }
         // turret
-        double p = m("turret").power; double pe = Math.abs(p) < 0.08 ? 0 : p - Math.copySign(0.08, p);
+        double p = m("turret").power; double pe = Math.abs(p) < TURRET_FRIC ? 0 : p - Math.copySign(TURRET_FRIC, p);
         potW += (pe*TURRET_GAIN*vbat/12 - potW) * dt / 0.05;
         if (TURRET_JAMMED) potW = 0;
         potV += potW*dt; if (potV < 0.45) { potV = 0.45; potW = 0; } if (potV > 1.8) { potV = 1.8; potW = 0; }
@@ -144,7 +146,7 @@ public class World {
     static List<double[]> pend = new ArrayList<>();   // frames waiting to be delivered (tCap, result)
     static List<LLResult> pendR = new ArrayList<>();
     static void frame(){
-        LLResult r = new LLResult(); r.tFrame = t;
+        LLResult r = new LLResult(); r.tFrame = t + LL_TIME_ERR;   // reported capture time (can be wrong)
         if (!CAMERA_BLOCKED) {
             double ch = camHeading(), cxp = x + CAM_FWD*Math.cos(ch), cyp = y + CAM_FWD*Math.sin(ch);
             double pr = Math.toRadians(CAM_PITCH_TRUE);
@@ -183,7 +185,7 @@ public class World {
         pend.clear(); pendR.clear(); shots = 0; shotAimMax = 0; shotPct.clear(); feedT = 0; pad = new Gamepad(); tele = new Tele(); rnd = new Random(1);
         for (Object o : dev.values()) if (o instanceof Motor) { ((Motor) o).power = 0; ((Motor) o).dir = DcMotorSimple.Direction.FORWARD; ((Motor) o).amps = 0; ((Motor) o).zpb = DcMotor.ZeroPowerBehavior.FLOAT; }
         CAMERA_BLOCKED = false;
-        POT_MODE = 0; POT_OFFSET = 0; TURRET_JAMMED = false; ODO_FROZEN = false; ODO_FAULT = false;
+        POT_MODE = 0; POT_OFFSET = 0; TURRET_FRIC = 0.08; LL_TIME_ERR = 0; TURRET_JAMMED = false; ODO_FROZEN = false; ODO_FAULT = false;
     }
 
     public static class Tele implements Telemetry {

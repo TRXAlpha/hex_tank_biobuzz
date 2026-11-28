@@ -55,6 +55,7 @@ public class AutoHelperTilted {
     public static double FILTER_ALPHA = 0.4;
     public static int FIRST_TAG = 42;
     public static int GLITCH_LOOPS = 3;
+    public static double STICK_DEG_S = 5, BOOST_RATE = 0.6, BOOST_MAX = 0.5;   // friction boost (see driveTurret)
     public static double GLITCH_V = 0.4;
     public static double HEADING_DEADBAND = 0.4;
     public static double HEADING_GOOD_ENOUGH_DEG = 3;
@@ -154,7 +155,7 @@ public class AutoHelperTilted {
     // ===================== TURRET STATE =====================
     private double v, deg, rawDeg, lastDeg;
     private boolean potOk = true;
-    private double goodRaw = -1;
+    private double goodRaw = -1, boost = 0, markDeg = 0, markMs = 0;
     private int badLoops = 0;
     private double minDeg, maxDeg;
     private double desired, lastDesired, target, targetVel;
@@ -737,8 +738,18 @@ public class AutoHelperTilted {
         double tv = saturated ? 0 : targetVel;
 
         double power = kV * tv;
+        // stuck by friction: should move but does not (judged over 0.2 s) -> extra power grows, then fades
+        markMs += dt * 1000;
+        if (markMs >= 200) {
+            boolean stuck = potOk && Math.abs(error) > TOLERANCE_DEG && Math.abs(deg - markDeg) < STICK_DEG_S * markMs / 1000
+                    && Math.abs(tv) < 20;
+            boost = stuck ? Math.min(BOOST_MAX, boost + BOOST_RATE * markMs / 1000) : Math.max(0, boost - 2 * BOOST_RATE * markMs / 1000);
+            markDeg = deg;
+            markMs = 0;
+        }
+        if (Math.abs(error) <= TOLERANCE_DEG) boost = 0;
         if (Math.abs(error) > TOLERANCE_DEG) {
-            power += kP * error + kD * (tv - turretVel) + Math.copySign(kS, error);
+            power += kP * error + kD * (tv - turretVel) + Math.copySign(kS + boost, error);
         }
         power = clamp(power, -maxPowerNow, maxPowerNow);
 

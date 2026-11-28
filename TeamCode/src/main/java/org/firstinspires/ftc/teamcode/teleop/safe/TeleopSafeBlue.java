@@ -28,7 +28,7 @@ import java.util.List;
 /*
  * TELEOP SAFE BLUE = TELEOP AUTO-AIM BLUE + 3 safety guards (screen line "SAFETY"):
  *   1. POT SUSPECT: camera vs pot+odometry keep disagreeing (pot slipped) -> pot treated as bad
- *      (camera aim with tags, hold without). Stays until the OpMode restarts.
+ *      (camera aim with tags, hold without). Clears itself when they agree again (or SHARE).
  *   2. TURRET STUCK: high power but the pot does not move -> turret off for 1 s, then tries again.
  *   3. ODOMETRY BAD: Pinpoint fault, or pose frozen while driving -> no odometry aim (hold without tags).
  * TELEOP AUTO-AIM BLUE (copy of the RED file: a fix goes in BOTH). One fixed flywheel speed (Calib.SHOT_SPEED). The turret aims by itself or holds a fixed spot.
@@ -69,13 +69,18 @@ public class TeleopSafeBlue extends OpMode {
     public static boolean MOTOR_REVERSED = false;
     public static double MAX_POWER = 1, kP = 0.006, kD = 0.0002, kS = 0.2, kV = 0.0015;
     public static double TOLERANCE_DEG = 1.5, FILTER_ALPHA = 0.4;
+    // friction: if the turret should move but moves slower than STICK_DEG_S, extra power grows by BOOST_RATE/s
+    public static double STICK_DEG_S = 5, BOOST_RATE = 0.6, BOOST_MAX = 0.5;
     public static double CAM_ONLY_MAX_POWER = 0.35;  // turret power cap when aiming on the camera with a BAD pot (no limits known)
     public static double CAM_PULSE_POWER = 0.35;     // bad pot: push, stop, look at a NEW camera frame, push again
     public static double CAM_MS_PER_DEG_START = 5;
+    public static double CAM_COAST_MS = 100;         // bad pot: the turret still coasts this long after a push (no shot on it)
     public static double POT_GOOD_MS = 500;          // pot counts as good again only after this long without a bad reading   // first guess of push time per degree (learned while it runs)
     // ---------- safety guards ----------
     public static double SLIP_DEG = 6;            // camera vs pot+odometry disagree more than this ...
     public static int SLIP_FRAMES = 8;            // ... in this many good frames in a row -> pot SUSPECT
+    public static int SLIP_CLEAR_FRAMES = 20;     // agrees again this many frames in a row -> pot OK again
+    public static double SLIP_MAX_RATE = 40;      // deg/s: turret or robot turning faster -> no slip check
     public static double STALL_POWER = 0.5;       // turret power at least this ...
     public static double STALL_MS = 500;          // ... this long while the pot does not move -> STUCK
     public static double STALL_MIN_V = 0.01;      // "moved" = pot changed at least this much
@@ -117,10 +122,11 @@ public class TeleopSafeBlue extends OpMode {
     // safety guards
     private boolean frozen = false;               // R1: turret frozen in place
     private boolean potSuspect = false, haveRef = false, odoBad = false, odoFault = false;
-    private int slipFrames = 0, stalls = 0;
+    private int slipFrames = 0, okFrames = 0, stalls = 0;
+    private double turretRate = 0, omegaNow = 0;                // deg/s, rad/s (for the slip check)
     private double refX, refY;                                  // slow average of the hive point (slip check)
     private double stallStartMs = -1, stallStartV, stuckUntil = 0;
-    private double frozenSince = -1, fzX, fzY, fzH;
+    private double frozenSince = -1, fzX, fzY, fzH, rateDeg = 0;
     private double camFrameT = -1e9, lastPotBad = -1e9;      // when the last camera frame was taken (clock ms)
     private double pulseUntil = 0, pulseSign = 0, pulseMs = 0, errBeforePulse = 0, msPerDeg = -1;
     private int tags = 0;
@@ -129,6 +135,8 @@ public class TeleopSafeBlue extends OpMode {
     // turret
     private double v, deg, rawDeg, lastDeg, target, minDeg, maxDeg;
     private boolean potOk = true, saturated = false;
+    private double boost = 0, markDeg = 0, markMs = 0;
+    private double freshErr = 999, freshT = -1e9;                // camera-only: error on the last picture with no push   // friction boost (see STICK_DEG_S)
     private double goodRaw = -1;                  // last accepted pot voltage
     private int badLoops = 0, glitches = 0, resyncs = 0;
 
@@ -246,8 +254,10 @@ public class TeleopSafeBlue extends OpMode {
         }
         odoBad = odoFault || (frozenSince >= 0 && now - frozenSince > ODO_FROZEN_MS);
         if (odoBad) omega = 0;
+        omegaNow = omega;
         readTurret();
         if (potSuspect) potOk = false;                          // guard 1: a slipped pot is a bad pot
+        if (potOk) { turretRate = (deg - rateDeg) / dt; rateDeg = deg; }
         hT[hI] = now; hX[hI] = x; hY[hI] = y; hHead[hI] = head; hPan[hI] = rawDeg; hOk[hI] = potOk;
         hI = (hI + 1) % H;
 
@@ -270,7 +280,11 @@ public class TeleopSafeBlue extends OpMode {
         if (pr[2]) setFixed("BACK", Calib.V_BACK);
         if (pr[3]) setFixed("LEFT", Calib.V_LEFT);
         if (pr[4]) setFixed("RIGHT", Calib.V_RIGHT);
-        if (gamepad1.share) { haveAim = false; tags = 0; }    // forget -> scan again (AIM mode)
+        if (gamepad1.share) {                                  // SHARE: forget the CELL + reset the turret
+            haveAim = false; tags = 0;                         // (same as restarting the code, for the turret)
+            goodRaw = -1; badLoops = 0; boost = 0; lastPotBad = -1e9; msPerDeg = -1; pulseMs = 0; pulseUntil = 0; freshT = -1e9;
+            potSuspect = false; slipFrames = 0; okFrames = 0; haveRef = false; stuckUntil = 0; stallStartMs = -1;
+        }
         if (pr[7]) frozen = !frozen;                          // R1: freeze / unfreeze the turret
 
         // ---------- turret target ----------
@@ -327,7 +341,8 @@ public class TeleopSafeBlue extends OpMode {
         fw.update(volts);
 
         // ---------- shoot decision ----------
-        double aimErr = camAim && !potGood ? camErr : err;
+        // camera only: trust only the error of a picture taken with no push running (the turret moves during one)
+        double aimErr = camAim && !potGood ? (now - freshT < 300 ? freshErr : 999) : err;
         boolean onTarget = (fixed || haveAim || camAim) && !saturated && Math.abs(aimErr) <= AIM_TOL_DEG && (potOk || camAim);
         if (!onTarget) onSince = -1; else if (onSince < 0) onSince = now;
         boolean steady = onTarget && now - onSince >= AIM_SETTLE_MS;
@@ -412,9 +427,17 @@ public class TeleopSafeBlue extends OpMode {
         double nx = hX[j] + c[0] * Math.cos(a) - c[1] * Math.sin(a);
         double ny = hY[j] + c[0] * Math.sin(a) + c[1] * Math.cos(a);
         double tol = Math.max(150, Math.hypot(c[0], c[1]) * Math.tan(Math.toRadians(SLIP_DEG)));
+        boolean calm = Math.abs(turretRate) < SLIP_MAX_RATE && Math.abs(Math.toDegrees(omegaNow)) < SLIP_MAX_RATE;
         if (!haveRef) { refX = nx; refY = ny; haveRef = true; }       // guard 1: the hive does not move
-        else if (Math.hypot(nx - refX, ny - refY) > tol) { if (++slipFrames >= SLIP_FRAMES) potSuspect = true; }
-        else { slipFrames = 0; refX += 0.05 * (nx - refX); refY += 0.05 * (ny - refY); }
+        else if (!calm) { /* fast turn: camera and pot timing differ, do not judge */ }
+        else if (Math.hypot(nx - refX, ny - refY) > tol) {
+            okFrames = 0;
+            if (++slipFrames >= SLIP_FRAMES) potSuspect = true;
+        } else {
+            slipFrames = 0;
+            if (potSuspect && ++okFrames >= SLIP_CLEAR_FRAMES) potSuspect = false;   // agrees again: pot OK
+            refX += 0.05 * (nx - refX); refY += 0.05 * (ny - refY);
+        }
         if (!haveAim || Math.hypot(nx - fx, ny - fy) > JUMP_MM) { fx = nx; fy = ny; }
         else { fx += CENTER_ALPHA * (nx - fx); fy += CENTER_ALPHA * (ny - fy); }
         haveAim = true;
@@ -449,17 +472,28 @@ public class TeleopSafeBlue extends OpMode {
     private void camOnlyTurret(double now, double err, double tv) {
         if (msPerDeg < 0) msPerDeg = CAM_MS_PER_DEG_START;
         double p = kV * tv;                                          // keep turning against the robot
+        if (now < pulseUntil && camFrameT > pulseUntil - pulseMs + 20
+                && (Math.signum(err) != pulseSign || Math.abs(err) < AIM_TOL_DEG / 2)) {
+            pulseMs = Math.max(1, now - (pulseUntil - pulseMs));     // new picture: passed / at the target -> stop pushing
+            pulseUntil = now;                                        // (pulseMs = real push time, for the learning)
+        }
         if (now < pulseUntil) {
             p += pulseSign * CAM_PULSE_POWER;
-        } else if (camFrameT > pulseUntil + 20) {                    // new picture since the push ended
+        }
+        if (now >= pulseUntil && camFrameT > pulseUntil + CAM_COAST_MS) {   // picture of a stopped turret: true error
+            freshErr = err;                                          // (the shot decision uses it)
+            freshT = now;
+        }
+        if (now >= pulseUntil && camFrameT > pulseUntil + 20) {                    // new picture since the push ended
             if (pulseMs > 0) {                                       // learn from the last push
                 double moved = (errBeforePulse - err) * pulseSign;
                 if (moved > 0.3) msPerDeg += 0.5 * (pulseMs / moved - msPerDeg);
-                msPerDeg = Math.max(1, Math.min(50, msPerDeg));
+                else if (Math.abs(errBeforePulse) > AIM_TOL_DEG / 2) msPerDeg *= 1.5;   // a real push did not move it: push longer
+                msPerDeg = Math.max(1, Math.min(100, msPerDeg));
                 pulseMs = 0;
             }
             if (Math.abs(err) > AIM_TOL_DEG / 2) {
-                pulseMs = Math.max(15, Math.min(150, Math.abs(err) * msPerDeg));
+                pulseMs = Math.max(15, Math.min(300, Math.abs(err) * msPerDeg));
                 pulseSign = Math.signum(err);
                 errBeforePulse = err;
                 pulseUntil = now + pulseMs;
@@ -476,7 +510,18 @@ public class TeleopSafeBlue extends OpMode {
         double vel = potOk ? (deg - lastDeg) / dt : tv;             // no pot: no damping term
         if (potOk) lastDeg = deg;
         double p = kV * tv;
-        if (Math.abs(err) > TOLERANCE_DEG) p += kP * err + kD * (tv - vel) + Math.copySign(kS, err);
+        // stuck by friction: should move but does not -> extra power grows until it breaks free, then fades
+        // (moved or not is judged over 0.2 s windows: the pot noise looks like motion loop to loop)
+        markMs += dt * 1000;
+        if (markMs >= 200) {
+            boolean stuck = potOk && Math.abs(err) > TOLERANCE_DEG && Math.abs(deg - markDeg) < STICK_DEG_S * markMs / 1000
+                    && Math.abs(tv) < 20;
+            boost = stuck ? Math.min(BOOST_MAX, boost + BOOST_RATE * markMs / 1000) : Math.max(0, boost - 2 * BOOST_RATE * markMs / 1000);
+            markDeg = deg;
+            markMs = 0;
+        }
+        if (Math.abs(err) <= TOLERANCE_DEG) boost = 0;
+        if (Math.abs(err) > TOLERANCE_DEG) p += kP * err + kD * (tv - vel) + Math.copySign(kS + boost, err);
         double max = camOnly ? CAM_ONLY_MAX_POWER : MAX_POWER;
         p = -Math.max(-max, Math.min(max, p));                      // + deg (left) = lower pot V
         if (potOk && ((v >= Calib.V_LIMIT_MAX && p > 0) || (v <= Calib.V_LIMIT_MIN && p < 0))) p = 0;

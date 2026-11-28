@@ -10,7 +10,7 @@ public class Paths {
     static final double ROBOT_HALF = 22;             // cm, half the robot length (approx.)
 
     static double endX, endY, endH;
-    static boolean potStress = false;
+    static boolean potStress = false, stiff = false;
     /** facing: "back" = back to the hive, "front" = front to the hive, "right" = hive on the robot's right. */
     static void auto(String name, Supplier<OpMode> mk, int tag, double startDistCm, String facing, double potV, double rbat) {
         World.reset(); World.RBAT = rbat; World.FIRST_TAG = tag;
@@ -22,7 +22,7 @@ public class Paths {
         final List<String> states = new ArrayList<>();
         final double[] minHive = {1e9}, ext = {1e9, -1e9, 1e9, -1e9};
         final StringBuilder track = new StringBuilder();
-        Run.run(mk, 30, (t, op) -> { if (potStress) World.POT_MODE = 1; }, op -> {
+        Run.run(mk, 30, (t, op) -> { if (potStress) World.POT_MODE = 1; if (stiff) World.TURRET_FRIC = 0.30; }, op -> {
             String st = Run.tl("state");
             if (states.isEmpty() || !states.get(states.size() - 1).startsWith(st + " "))
                 states.add(String.format("%s @%.1fs", st, World.t - Run.run0));
@@ -70,6 +70,12 @@ public class Paths {
         auto("STRESS easy turning: tilt jos RED", tiltR, 30, 110, "back", 1.50, 0.05);
         auto("STRESS easy turning: parcare RED", org.firstinspires.ftc.teamcode.auto.red.AutoTrasParcareRed::new, 34, 110, "right", 1.03, 0.05);
         World.TURN_FRIC = 0.25;
+        // stress: stiff turret in the tilt auto (friction boost must let it aim and shoot)
+        World.TURRET_FRIC = 0.30;
+        stiff = true;
+        auto("STRESS stiff turret: tilt jos RED", tiltR, 30, 110, "back", 1.50, 0.05);
+        stiff = false;
+        World.TURRET_FRIC = 0.08;
         // stress: pot spiking during the tilt auto (bad contact): must still finish the path
         potStress = true;
         auto("STRESS spiking pot: tilt jos RED", tiltR, 30, 110, "back", 1.50, 0.05);
