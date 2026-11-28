@@ -5,7 +5,7 @@
     import com.qualcomm.robotcore.hardware.DcMotor;
     import com.qualcomm.robotcore.hardware.DcMotorSimple;
 
-    @TeleOp
+//    @TeleOp(group="tuning")
     public class stagiu extends OpMode {
         DcMotor stagiu;
         @Override

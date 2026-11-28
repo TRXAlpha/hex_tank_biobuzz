@@ -1,0 +1,1 @@
+package org.firstinspires.ftc.robotcore.external; public interface Telemetry { Object addData(String c,Object v); Object addData(String c,String f,Object... a); Object addLine(String s); boolean update(); }

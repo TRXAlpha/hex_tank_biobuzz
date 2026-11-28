@@ -1,0 +1,1 @@
+package org.firstinspires.ftc.robotcore.internal.system; public class AppUtil { static AppUtil I=new AppUtil(); public static AppUtil getInstance(){return I;} public java.io.File getSettingsFile(String s){return new java.io.File(s);} }

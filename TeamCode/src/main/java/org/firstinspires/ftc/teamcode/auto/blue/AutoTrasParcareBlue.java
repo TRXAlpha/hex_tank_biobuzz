@@ -1,4 +1,4 @@
-package org.firstinspires.ftc.teamcode.auto;
+package org.firstinspires.ftc.teamcode.auto.blue;
 
 import com.acmerobotics.dashboard.FtcDashboard;
 import com.acmerobotics.dashboard.config.Config;
@@ -12,9 +12,11 @@ import com.qualcomm.robotcore.util.ElapsedTime;
 import org.firstinspires.ftc.teamcode.Pozitie;
 import org.firstinspires.ftc.teamcode.auto.helpere.AutoHelper;
 
+// BLUE: the path values below are a COPY of the RED ones. Tune them on the blue side.
+// Aims at tag cluster 38 (BLUE audience CELL).
 @Config
-@Autonomous(name = "auto tras parcare")
-public class AutoTrasParcare extends OpMode {
+@Autonomous(name = "auto tras parcare BLUE", group = "BLUE")
+public class AutoTrasParcareBlue extends OpMode {
     public static double SHOOT_MS = 5000;   // gated feed window after flywheel at speed + turret on target
 
     public static double heading_parcare = -80;
@@ -49,7 +51,7 @@ public class AutoTrasParcare extends OpMode {
         stagiu.setDirection(DcMotorSimple.Direction.REVERSE);
         stagiu.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE); intake = hardwareMap.get(DcMotor.class, "intake");
         telemetry = new MultipleTelemetry(telemetry, FtcDashboard.getInstance().getTelemetry());
-        drive = AutoHelper.fromHardwareMap(hardwareMap, "stanga", "dreapta", "pinpoint", -44.3, -6.6);
+        drive = AutoHelper.fromHardwareMap(hardwareMap, "stanga", "dreapta", "pinpoint", -44.3, -6.6, 38);
         drive.resetPose();
         Pozitie.clear();                   // no old pose leaks into teleop
         runtime.reset();
@@ -74,11 +76,6 @@ public class AutoTrasParcare extends OpMode {
     public void loop() {
         drive.update(telemetry);           // pinpoint once + turret tracking, every loop
         Pozitie.setMmDeg(drive.getX(), drive.getY(), drive.getHeading());   // hand pose to teleop
-        if (state != State.SHOOT && state != State.DONE) {
-            intake.setPower(1);   // moving + parked: always on
-        } else if (state == State.DONE) {
-            intake.setPower(0);
-        }
         switch (state) {
             case SHOOT:
                 if (drive.shootFor(SHOOT_MS, telemetry)) {
@@ -89,6 +86,7 @@ public class AutoTrasParcare extends OpMode {
                 break;
 
             case GO_LINE:
+                intake.setPower(1);
                 if (drive.lap(heading_go_line, x_go_line, y_go_line, telemetry)) {
                     drive.resetMove();
                     drive.stop();
@@ -135,6 +133,7 @@ public class AutoTrasParcare extends OpMode {
                 break;
 
             case ROTATE_LINE:
+                intake.setPower(0);
                 if (drive.lap(heading_rotate_line, x_rotate_line, y_rotate_line, telemetry)) {
                     drive.resetMove();
                     drive.stop();

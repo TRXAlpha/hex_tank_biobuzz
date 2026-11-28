@@ -17,6 +17,9 @@ import com.qualcomm.robotcore.util.ElapsedTime;
 import com.qualcomm.robotcore.util.Range;
 
 import org.firstinspires.ftc.robotcore.external.Telemetry;
+import org.firstinspires.ftc.teamcode.Calib;
+import org.firstinspires.ftc.teamcode.Flywheel;
+import org.firstinspires.ftc.teamcode.Power;
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.Pose2D;
@@ -50,13 +53,12 @@ public class AutoHelperTilted {
     public static double FF_ALPHA = 0.3;
     public static double FF_JUMP_DEG = 15;
     public static double FILTER_ALPHA = 0.4;
-    public static int FIRST_TAG = 30;
-    public static double FLY_KD = 0;
-    public static double FLY_KF = 15.6;   // 32767 / 2100 (max tps from FlywheelTuner calibration)
-    public static double FLY_KI = 0.2;
-    public static double FLY_KP = 20;
-    public static double FLY_TARGET = 1200;
+    public static int FIRST_TAG = 42;
+    public static int GLITCH_LOOPS = 3;
+    public static double STICK_DEG_S = 5, BOOST_RATE = 0.6, BOOST_MAX = 0.5;   // friction boost (see driveTurret)
+    public static double GLITCH_V = 0.4;
     public static double HEADING_DEADBAND = 0.4;
+    public static double HEADING_GOOD_ENOUGH_DEG = 3;
     public static double HEADING_KD = 0.002;
     public static double HEADING_KP = 0.55;
     public static double HEADING_KS = 0.35;
@@ -64,6 +66,7 @@ public class AutoHelperTilted {
     public static double HEADING_MAX_POWER = 1;
     public static double HEADING_SETTLE_RATE = 15;
     public static double HEADING_TANH_SCALE = 2;
+    public static double HEADING_TIMEOUT_S = 1.5;
     public static double HIVE_DIST_MM = 1500;
     public static double INIT_MAX_POWER = 1;
     public static double JUMP_RESET_MM = 400;
@@ -83,13 +86,10 @@ public class AutoHelperTilted {
     public static double MOUNT_X_MM = 0;
     public static double MOUNT_Y_MM = 0;
     public static double NOMINAL_VOLTAGE = 12.5;
-    public static double OVER_BAND = 0.02;    // above 102% of target = too fast -> no feed
     public static double OFF_INNER_MM = 69.85;
     public static double OFF_OUTER_MM = 165.1;
     public static double PAN_LAG_MS = 0;
     public static int PIPELINE = 2;
-    public static double READY_BAND = 0.01;
-    public static double SHOT_DIP = 0.025;
     public static double SIGN_CONF_SIN = 0.5;
     public static double SLOPE_DECAY = 0.9;
     public static double SPINUP_TIMEOUT_MS = 2500;
@@ -97,23 +97,26 @@ public class AutoHelperTilted {
     public static double TURRET_LOOKAHEAD_MS = 30;
     public static double TURRET_MAX_POWER = 1;
     public static double VISION_TIMEOUT_MS = 200;
-    public static double V_BACK = 1.5;
-    public static double V_CENTER = 1.03;
-    public static double V_FRONT = 0.663;
-    public static double V_INIT = 0.663;   // init pose: 0.663 = forward (spre fata)
+    public static double V_BACK = 1.597;
+    public static double V_CENTER = 1.1;
+    public static double V_FRONT = 0.727;
+    public static double V_INIT = 1.597;
     public static double V_LIMIT_MAX = 1.75;
     public static double V_LIMIT_MIN = 0.5;
     public static double kD = 0.0002;
     public static double kP = 0.006;
     public static double kS = 0.2;
     public static double kV = 0.0015;
+    public static double FLY_TARGET = 1110;
 
     // ===================== HARDWARE =====================
     private final DcMotor stanga;
     private final DcMotor dreapta;
     private final GoBildaPinpointDriver pinpoint;
     private final VoltageSensor voltageSensor;
-    private final DcMotorEx turelaD, turelaS;
+    private final Flywheel fly;
+    private final Power power;
+    private final ElapsedTime driveClock = new ElapsedTime();
     private final DcMotor stagiu, turret, intake;
     private final AnalogInput pot;
     private final Limelight3A limelight;
@@ -123,6 +126,8 @@ public class AutoHelperTilted {
     private boolean poseFresh = false;
     private boolean doneXY = false;
     private boolean doneHeading = false;
+    private boolean headingActive = false;
+    private final ElapsedTime headingClock = new ElapsedTime();
     private double targetX = Double.NaN;
     private double targetY = Double.NaN;
     private boolean lineReady = false;
@@ -150,6 +155,8 @@ public class AutoHelperTilted {
     // ===================== TURRET STATE =====================
     private double v, deg, rawDeg, lastDeg;
     private boolean potOk = true;
+    private double goodRaw = -1, boost = 0, markDeg = 0, markMs = 0;
+    private int badLoops = 0;
     private double minDeg, maxDeg;
     private double desired, lastDesired, target, targetVel;
     private boolean saturated = false, aiming = false;
@@ -173,13 +180,15 @@ public class AutoHelperTilted {
         this.voltageSensor = hardwareMap.voltageSensor.iterator().next();
 
         // flywheel
-        turelaD = hardwareMap.get(DcMotorEx.class, "turelaD");
-        turelaS = hardwareMap.get(DcMotorEx.class, "turelaS");
-        turelaS.setDirection(DcMotorSimple.Direction.REVERSE);
-        for (DcMotorEx m : new DcMotorEx[]{turelaD, turelaS}) {
-            m.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
-            m.setVelocityPIDFCoefficients(FLY_KP, FLY_KI, FLY_KD, FLY_KF);
-        }
+        // calibrated values (ROBOT CALIBRATION) replace the defaults above
+        Calib.load();
+        V_FRONT = Calib.V_FRONT;
+        V_CENTER = Calib.V_RIGHT;
+        V_BACK = Calib.V_BACK;
+        V_INIT = Calib.V_FRONT;                // this auto starts with the turret forward
+        CAM_PITCH_DEG = Calib.CAM_PITCH_DEG;
+        fly = new Flywheel(hardwareMap);       // battery-compensated speed control (same as teleop)
+        power = new Power(hardwareMap);
         intake = hardwareMap.dcMotor.get("intake");
         stagiu = hardwareMap.dcMotor.get("stagiu");
         stagiu.setDirection(DcMotorSimple.Direction.REVERSE);
@@ -203,6 +212,14 @@ public class AutoHelperTilted {
         v = pot.getVoltage();
         deg = rawDeg = lastDeg = turretDeg(v);
         clock.reset();
+    }
+
+    /** Same as below, and sets FIRST_TAG (leftmost tag of the CELL to aim at: 30, 34, 38 or 42). */
+    public static AutoHelperTilted fromHardwareMap(HardwareMap hardwareMap,
+                                                   String leftName, String rightName, String pinpointName,
+                                                   double podOffsetX_mm, double podOffsetY_mm, int tag) {
+        FIRST_TAG = tag;
+        return fromHardwareMap(hardwareMap, leftName, rightName, pinpointName, podOffsetX_mm, podOffsetY_mm);
     }
 
     public static AutoHelperTilted fromHardwareMap(HardwareMap hardwareMap,
@@ -232,9 +249,11 @@ public class AutoHelperTilted {
 
     /** One pinpoint read per loop + turret tracking. Call at the top of every loop(). */
     public void update(Telemetry t) {
+        power.read();
         refreshPose();
         poseFresh = true;
         updateTurret(t);
+        fly.update(power.volts());             // flywheel control every loop (pre-spin works)
     }
 
     private void ensurePose() {
@@ -352,9 +371,15 @@ public class AutoHelperTilted {
                     targetY - pose.getY(DistanceUnit.MM)));
         }
 
+        if (!headingActive) { headingActive = true; headingClock.reset(); }
         if (Math.abs(error) <= HEADING_DEADBAND) {
             stop();
             doneHeading = Math.abs(rate) <= HEADING_SETTLE_RATE;
+            return;
+        }
+        if (headingClock.seconds() > HEADING_TIMEOUT_S && Math.abs(error) <= HEADING_GOOD_ENOUGH_DEG) {
+            stop();
+            doneHeading = true;          // close enough: do not wobble forever
             return;
         }
 
@@ -373,6 +398,7 @@ public class AutoHelperTilted {
     }
 
     public void resetMove() {
+        headingActive = false;
         doneXY = false;
         doneHeading = false;
         lineReady = false;
@@ -384,19 +410,18 @@ public class AutoHelperTilted {
     // =========================================================
 
     public void setFlywheel(double target) {
+        if (target > 0 && !fly.isOn() && fly.getVelocity() < 100) power.learnFromFlywheelStart();   // battery check
         flyTarget = target;
-        turelaD.setVelocity(target);
-        turelaS.setVelocity(target);
+        fly.setTarget(target);
+        fly.setOn(target > 0);
     }
 
     /** ShootSimple gating + turret on target. Returns true when ready to feed. */
     public boolean updateShooter(boolean feed) {
-        flyVel = (turelaD.getVelocity() + turelaS.getVelocity()) / 2.0;
-        double lo = flyTarget * (1 - SHOT_DIP), hi = flyTarget * (1 + OVER_BAND);
-        if (flyTarget <= 0 || flyVel < lo || flyVel > hi) atSpeed = false;           // fired / off / too fast
-        else if (Math.abs(flyVel - flyTarget) <= flyTarget * READY_BAND) atSpeed = true; // within +/-1%: feed
+        flyVel = fly.getVelocity();            // fly.update() runs every loop in update()
+        atSpeed = fly.isAtSpeed();
         // feed only on live vision: the odometry seed alone is not trusted
-        onTarget = aiming && tagsVisible() && !saturated && Math.abs(target - deg) <= AIM_TOL_DEG;
+        onTarget = potOk && aiming && tagsVisible() && !saturated && Math.abs(target - deg) <= AIM_TOL_DEG;
         boolean ready = atSpeed && onTarget;
         double p = (feed && ready) ? 1 : 0;
         intake.setPower(p);
@@ -405,7 +430,7 @@ public class AutoHelperTilted {
     }
 
     /**
-     * Call every loop. Spins flywheel to FLY_TARGET, waits for speed + aim, then feeds (gated) for feedMs.
+     * Call every loop. Spins flywheel to Calib.SHOT_SPEED, waits for speed + aim, then feeds (gated) for feedMs.
      * Returns true when done; flywheel and stagiu are then off.
      */
     public boolean shootFor(double feedMs, Telemetry t) {
@@ -414,7 +439,7 @@ public class AutoHelperTilted {
             windowStarted = false;
             shootTimer.reset();
         }
-        setFlywheel(FLY_TARGET);
+        setFlywheel(FLY_TARGET); //Calib.SHOT_SPEED
         boolean ready = updateShooter(windowStarted);
 
         if (!windowStarted && (ready || shootTimer.milliseconds() >= SPINUP_TIMEOUT_MS)) {
@@ -438,8 +463,7 @@ public class AutoHelperTilted {
         stagiu.setPower(0);
         intake.setPower(0);
         setFlywheel(0);
-        turelaD.setPower(0);
-        turelaS.setPower(0);
+        fly.stop();
         shooting = false;
         windowStarted = false;
         atSpeed = false;
@@ -522,7 +546,7 @@ public class AutoHelperTilted {
                 double agoMs = staleness + r.getCaptureLatency() + r.getTargetingLatency() + EXTRA_LATENCY_MS;
                 int iPose = lookup(now - agoMs);
                 int iPan  = lookup(now - agoMs - PAN_LAG_MS);
-                if (iPose >= 0 && iPan >= 0) processFrame(r, iPose, iPan, now);
+                if (iPose >= 0 && iPan >= 0 && potOk) processFrame(r, iPose, iPan, now);   // bad pot: frame not trusted
             }
         }
 
@@ -577,7 +601,7 @@ public class AutoHelperTilted {
             if (i < 0 || i >= N || seen[i]) continue;
 
             Position p = f.getTargetPoseCameraSpace().getPosition().toUnit(DistanceUnit.MM);
-            double range = Math.sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
+            double range = Math.sqrt(p.x * p.x + p.y * p.y + p.z * p.z) * Calib.DIST_SCALE;
             if (range <= MIN_DIST_MM || range >= MAX_DIST_MM) continue;
 
             double tx = f.getTargetXDegrees(), ty = f.getTargetYDegrees();
@@ -689,10 +713,19 @@ public class AutoHelperTilted {
         uy /= n;
     }
 
+    /** Same glitch filter as the teleop: a jump > GLITCH_V in one loop is ignored (turret holds) until it repeats. */
     private void readTurret() {
         double raw = pot.getVoltage();
-        potOk = raw > 0.03 && raw < 3.25;
-        if (!potOk) return;
+        boolean inRange = raw > 0.03 && raw < 3.25;
+        boolean jump = goodRaw >= 0 && Math.abs(raw - goodRaw) > GLITCH_V;
+        if (!inRange || jump) {
+            badLoops++;
+            if (!inRange || badLoops < GLITCH_LOOPS) { potOk = false; return; }   // ignore -> driveTurret holds
+            v = raw;                         // same new value GLITCH_LOOPS loops in a row -> it is real
+        }
+        badLoops = 0;
+        potOk = true;
+        goodRaw = raw;
         v += FILTER_ALPHA * (raw - v);
         rawDeg = turretDeg(raw);
         deg = turretDeg(v);
@@ -705,8 +738,18 @@ public class AutoHelperTilted {
         double tv = saturated ? 0 : targetVel;
 
         double power = kV * tv;
+        // stuck by friction: should move but does not (judged over 0.2 s) -> extra power grows, then fades
+        markMs += dt * 1000;
+        if (markMs >= 200) {
+            boolean stuck = potOk && Math.abs(error) > TOLERANCE_DEG && Math.abs(deg - markDeg) < STICK_DEG_S * markMs / 1000
+                    && Math.abs(tv) < 20;
+            boost = stuck ? Math.min(BOOST_MAX, boost + BOOST_RATE * markMs / 1000) : Math.max(0, boost - 2 * BOOST_RATE * markMs / 1000);
+            markDeg = deg;
+            markMs = 0;
+        }
+        if (Math.abs(error) <= TOLERANCE_DEG) boost = 0;
         if (Math.abs(error) > TOLERANCE_DEG) {
-            power += kP * error + kD * (tv - turretVel) + Math.copySign(kS, error);
+            power += kP * error + kD * (tv - turretVel) + Math.copySign(kS + boost, error);
         }
         power = clamp(power, -maxPowerNow, maxPowerNow);
 
@@ -714,7 +757,7 @@ public class AutoHelperTilted {
         if ((v >= V_LIMIT_MAX && motorPower > 0) || (v <= V_LIMIT_MIN && motorPower < 0)) motorPower = 0;
         if (!potOk) motorPower = 0;
 
-        turret.setPower(motorPower);
+//        turret.setPower(motorPower);
     }
 
     private double turretDeg(double volts) {
@@ -778,8 +821,7 @@ public class AutoHelperTilted {
 
     /** Stops drive only (used between moves). */
     public void stop() {
-        stanga.setPower(0);
-        dreapta.setPower(0);
+        setDrive(0, 0);
     }
 
     /** OpMode stop(): everything off. */
@@ -813,16 +855,23 @@ public class AutoHelperTilted {
     }
 
     private void setTurn(double power) {
-        stanga.setPower(-power);
-        dreapta.setPower(power);
+        setDrive(-power, power);
     }
 
     private void setDriveTurn(double drive, double turn) {
         double left = drive - turn;
         double right = drive + turn;
         double maxMag = Math.max(1.0, Math.max(Math.abs(left), Math.abs(right)));
-        stanga.setPower(left / maxMag);
-        dreapta.setPower(right / maxMag);
+        setDrive(left / maxMag, right / maxMag);
+    }
+
+    /** All drive power goes through the battery limiter (Power): no brownout on a weak battery. */
+    private void setDrive(double l, double r) {
+        double dt = Math.max(1e-3, driveClock.seconds());
+        driveClock.reset();
+        double[] d = power.drive(l, r, dt);
+        stanga.setPower(d[0]);
+        dreapta.setPower(d[1]);
     }
 
     private static double[] rotate(double forward, double left, double headingDeg) {
