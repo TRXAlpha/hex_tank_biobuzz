@@ -29,7 +29,7 @@ public class Flywheel {
     // After a spin-up (from under SPUN_DOWN of the target) the speed must hold READY_BAND this long before the
     // first ball: the encoders are on the motors, the wheel itself lags behind. Ball-to-ball recovery is not slowed.
     public static double SPINUP_HOLD_MS = 500;
-    public static double SPUN_DOWN = 0.90;
+    public static double SPUN_DOWN = 0.95;   // under 95 % (target -5 %) = the wheel must settle again (includes ball dips)
 
     public static final double NOMINAL_V = 12.0;
 

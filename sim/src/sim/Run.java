@@ -242,6 +242,13 @@ public class Run {
                     if (tl("SAFETY").contains("STUCK")) seen[0] = tl("SAFETY"); });
         System.out.printf("   S2 jammed turret: time at high power %.0f ms of 4000 (want small), screen showed: %s%n", fullPowerMs[0], seen[0]);
         check("jammed turret: STUCK shown, high power only in short bursts", seen[0].contains("STUCK") && fullPowerMs[0] < 1500);
+        // S2b: the jam clears at 4 s: the turret must move and aim again
+        World.reset(); place(0, -150, 90 + 25, 0.663);
+        final double[] errClear = {0};
+        run(TeleopSafeBlue::new, 9, (t, op) -> { World.TURRET_JAMMED = t > 1 && t < 4; World.pad.right_stick_x = (float) (t > 1.5 && t < 2.1 ? -0.4 : 0); },
+            op -> { if (World.t > run0 + 7.5) errClear[0] = Math.max(errClear[0], Math.abs(World.aimErr())); });
+        System.out.printf("   S2b jam clears: aim error at the end %.2f deg, SAFETY: %s%n", errClear[0], tl("SAFETY"));
+        check("jam clears: turret aims again (< 3 deg)", errClear[0] < 3);
         // S3: Pinpoint fault / frozen, camera blocked: turret must not swing to a wrong place
         for (int k = 0; k < 2; k++) {
             final int kk = k;
@@ -258,6 +265,31 @@ public class Run {
             System.out.printf("   S3 odometry %s, camera blocked: turret moved %.3f V after the fault, screen: %s%n", kk == 0 ? "FAULT" : "FROZEN", oMoved[0], scr[0]);
             check("odometry " + (kk == 0 ? "fault" : "frozen") + ": detected, turret holds", scr[0].contains("ODOMETRY") && scr[0].contains("HOLD") && oMoved[0] < 0.03 + (kk == 1 ? 0.06 : 0));
         }
+
+        // S4: R1 freeze: robot turns, turret must not move; R2 still shoots; R1 again -> aims again
+        World.reset(); place(0, -150, 90 + 25, 0.663);
+        final double[] frozenMove = {0}; final double[] fz0 = {0}; final int[] frozenShots = {0}; final double[] errEnd = {0};
+        run(TeleopSafeBlue::new, 10, (t, op) -> {
+            World.pad.right_bumper = (t > 3 && t < 3.1) || (t > 7 && t < 7.1);
+            World.pad.right_stick_x = (float) (t > 4 && t < 4.6 ? -0.5 : 0);
+            World.pad.right_trigger = t > 5 && t < 6.5 ? 1 : 0; },
+            op -> { double s2 = World.t - run0;
+                    if (Math.abs(s2 - 3.2) < 0.011) fz0[0] = World.potV;
+                    if (s2 > 3.2 && s2 < 7) frozenMove[0] = Math.max(frozenMove[0], Math.abs(World.potV - fz0[0]));
+                    if (Math.abs(s2 - 6.9) < 0.011) frozenShots[0] = World.shots;
+                    if (s2 > 9.5) errEnd[0] = Math.max(errEnd[0], Math.abs(World.aimErr())); });
+        System.out.printf("   S4 R1 freeze: turret moved %.3f V while frozen (robot turned), R2 shots while frozen %d, aim error after unfreeze %.2f deg%n",
+                frozenMove[0], frozenShots[0], errEnd[0]);
+        check("R1 freeze: turret does not move, R2 shoots, R1 again aims", frozenMove[0] < 0.005 && frozenShots[0] > 0 && errEnd[0] < 3);
+
+        // burst speed: R2 held 3 s on target, spin-up threshold 90 % vs 95 %
+        for (double sd : new double[]{0.90, 0.95}) {
+            Flywheel.SPUN_DOWN = sd;
+            World.reset(); place(0, -150, 90, 0.663);
+            run(TeleopSafeBlue::new, 6, (t, op) -> World.pad.right_trigger = t > 3 ? 1 : 0, null);
+            System.out.printf("   burst: SPUN_DOWN %.2f -> %d balls in 3 s, speed at shots %s%n", sd, World.shots, pct());
+        }
+        Flywheel.SPUN_DOWN = 0.95;
 
         // ===================== C. BATTERY LIMITER =====================
         System.out.println("\n=== C. BATTERY LIMITER (driver slams full forward / back every 0.4 s, flywheel on) ===");

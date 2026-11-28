@@ -44,6 +44,8 @@ import java.util.List;
  *   Circle hold    unjam (intake + stagiu reverse)
  *   Square         flywheel on/off (on at start)
  *   Share          forget the CELL and scan again
+ *   R1             FREEZE turret ON/OFF: turret gets no power at all (camera, pot, scan ignored).
+ *                  While frozen, R2 shoots as soon as the flywheel is at speed; auto-fire is off.
  * Alliance: BLUE (fixed in this file).
  *
  * AIM mode, every new camera frame: our CELL center (CellVision) -> FIELD point with the Pinpoint pose from
@@ -111,6 +113,7 @@ public class TeleopSafeBlue extends OpMode {
     private boolean camPanOk;             // pot was good when that frame was taken
     private String aimSrc = "";
     // safety guards
+    private boolean frozen = false;               // R1: turret frozen in place
     private boolean potSuspect = false, haveRef = false, odoBad = false, odoFault = false;
     private int slipFrames = 0, stalls = 0;
     private double refX, refY;                                  // slow average of the hive point (slip check)
@@ -128,7 +131,7 @@ public class TeleopSafeBlue extends OpMode {
     private int badLoops = 0, glitches = 0, resyncs = 0;
 
     // buttons (edge detect): touchpad, up, down, left, right, square, triangle
-    private final boolean[] prev = new boolean[7];
+    private final boolean[] prev = new boolean[8];
 
     // short history (time, pose, turret) so a camera frame uses the pose from when it was taken
     private static final int H = 64;
@@ -266,6 +269,7 @@ public class TeleopSafeBlue extends OpMode {
         if (pr[3]) setFixed("LEFT", Calib.V_LEFT);
         if (pr[4]) setFixed("RIGHT", Calib.V_RIGHT);
         if (gamepad1.share) { haveAim = false; tags = 0; }    // forget -> scan again (AIM mode)
+        if (pr[7]) frozen = !frozen;                          // R1: freeze / unfreeze the turret
 
         // ---------- turret target ----------
         if (!potOk) lastPotBad = now;
@@ -328,6 +332,7 @@ public class TeleopSafeBlue extends OpMode {
         boolean ok = false;
         String why;
         if (!fw.isOn())                    why = "flywheel OFF (Square)";
+        else if (frozen)                   why = "TURRET FROZEN (R1): hold R2 to shoot";
         else if (fixed)                    why = "FIXED " + fixedName + ": auto-fire off, hold R2";
         else if (!haveAim && !camAim)      why = "SCANNING for tags";
         else if (tags < FIRE_MIN_TAGS)     why = "looking for tags";
@@ -335,8 +340,8 @@ public class TeleopSafeBlue extends OpMode {
         else if (!steady)                  why = "aiming";
         else if (!fw.isAtSpeed())          why = "speeding up";
         else { why = "FIRE"; ok = true; }
-        boolean r2Ready = fixed ? steady : ((!haveAim && !camAim) || steady);
-        boolean feed = fw.isAtSpeed() && ((autoFire && !fixed && ok) || (hold && r2Ready));
+        boolean r2Ready = frozen || (fixed ? steady : ((!haveAim && !camAim) || steady));
+        boolean feed = fw.isAtSpeed() && ((autoFire && !fixed && !frozen && ok) || (hold && r2Ready));
 
         // ---------- intake + stagiu (one write each per loop) ----------
         if (gamepad1.circle)  { intake.setPower(-1); stagiu.setPower(-1); }
@@ -349,7 +354,7 @@ public class TeleopSafeBlue extends OpMode {
         telemetry.addData("SHOOT", hold ? (feed ? "R2: FIRING" : "R2: waiting for " + (fw.isAtSpeed() ? "turret" : "speed")) : why);
         telemetry.addData("Speed", "%.0f / %.0f", fw.getVelocity(), fw.getTarget());
         telemetry.addData("Tags / dist (cam)", "%d / %.0f cm (%.0f)", tags, dist, camDist);
-        telemetry.addData("Turret aim", aimSrc);
+        telemetry.addData("Turret aim", frozen ? "FROZEN (R1 to unfreeze)" : aimSrc);
         String safe = (potSuspect ? "POT SUSPECT (slipped)  " : "")
                 + (clock.milliseconds() < stuckUntil ? "TURRET STUCK - resting  " : "")
                 + (odoBad ? (odoFault ? "ODOMETRY FAULT  " : "ODOMETRY FROZEN  ") : "");
@@ -373,7 +378,7 @@ public class TeleopSafeBlue extends OpMode {
     /** Edge detect: {touchpad, up, down, left, right, square, triangle} pressed this loop. */
     private boolean[] readButtons() {
         boolean[] now = {gamepad1.touchpad, gamepad1.dpad_up, gamepad1.dpad_down, gamepad1.dpad_left,
-                gamepad1.dpad_right, gamepad1.square, gamepad1.triangle};
+                gamepad1.dpad_right, gamepad1.square, gamepad1.triangle, gamepad1.right_bumper};
         boolean[] e = new boolean[now.length];
         for (int i = 0; i < now.length; i++) { e[i] = now[i] && !prev[i]; prev[i] = now[i]; }
         return e;
@@ -478,11 +483,12 @@ public class TeleopSafeBlue extends OpMode {
     /** Guard 2: every turret power goes through here. High power + pot not moving = STUCK -> rest. */
     private void setTurret(double p) {
         double now = clock.milliseconds();
-        if (potOk && Math.abs(p) >= STALL_POWER) {
+        boolean blocked = now < stuckUntil || frozen;                // stuck rest / R1 freeze: no power
+        if (!blocked && potOk && Math.abs(p) >= STALL_POWER) {       // only check while power really goes out
             if (stallStartMs < 0 || Math.abs(v - stallStartV) >= STALL_MIN_V) { stallStartMs = now; stallStartV = v; }
             else if (now - stallStartMs > STALL_MS) { stuckUntil = now + STALL_REST_MS; stalls++; stallStartMs = -1; }
         } else stallStartMs = -1;
-        if (now < stuckUntil) p = 0;
+        if (blocked) p = 0;
         turret.setPower(p);
     }
 
