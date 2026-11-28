@@ -1,5 +1,6 @@
 package org.firstinspires.ftc.teamcode;
 
+import com.acmerobotics.dashboard.config.Config;
 import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
 import com.qualcomm.robotcore.hardware.DcMotorSimple;
@@ -21,6 +22,7 @@ import com.qualcomm.robotcore.util.ElapsedTime;
  *   fw.update(volts);                        // every loop (or update() to read the battery itself)
  *   if (fw.isAtSpeed()) ... feed ...
  */
+@Config
 public class Flywheel {
     // ---- feed gating ----
     public static double READY_BAND = 0.01;  // "at speed" = within +/-1 %
@@ -34,12 +36,16 @@ public class Flywheel {
     // Never give the flywheel more than this many volts (power x battery). A full battery then pushes exactly
     // like a half-full one: same spin-up, same speed loss while a ball goes through. 0 = no cap.
     public static double V_CAP = 11.0;
+    // Anti-overshoot (tune live on the Dashboard with FLYWHEEL TUNE):
+    public static double RAMP_TPS_PER_S = 0;   // > 0: the target rises this fast (ticks/s per s) instead of jumping
+    public static double MIN_POWER = 0;        // < 0 (e.g. -0.2): the motors may BRAKE when the wheel is too fast
 
     public static final double NOMINAL_V = 12.0;
 
     private final DcMotorEx d, s;
     private final VoltageSensor battery;
-    private double target = 0, vel = 0, volts = NOMINAL_V, power = 0;
+    private double target = 0, vel = 0, volts = NOMINAL_V, power = 0, cmd = 0;   // cmd = ramped target
+    private final ElapsedTime rampTimer = new ElapsedTime();
     private long lastVoltNs = 0;                 // own battery read: every 100 ms (slow read)
     private boolean on = false, atSpeed = false, spunUp = false;
     private boolean inBandBefore = false;
@@ -84,14 +90,19 @@ public class Flywheel {
     }
 
     private void control() {
+        double dt = Math.min(0.1, rampTimer.seconds());               // for the ramp
+        rampTimer.reset();
         vel = (d.getVelocity() + s.getVelocity()) / 2.0;
         if (!on || target <= 0) {
+            cmd = vel;                                                    // ramp starts from the real speed
             power = 0;
             atSpeed = false;
             spunUp = false;
         } else {
-            power = (Calib.KS + Calib.KV * target) * NOMINAL_V / volts + Calib.KP * (target - vel);
-            power = Math.max(0, Math.min(1, power));
+            if (RAMP_TPS_PER_S > 0) cmd += Math.max(-RAMP_TPS_PER_S * dt, Math.min(RAMP_TPS_PER_S * dt, target - cmd));
+            else cmd = target;
+            power = (Calib.KS + Calib.KV * cmd) * NOMINAL_V / volts + Calib.KP * (cmd - vel);
+            power = Math.max(Math.min(0, MIN_POWER), Math.min(1, power));
             if (V_CAP > 0) power = Math.min(power, V_CAP / volts);   // same push on every battery
             double lo = target * (1 - SHOT_DIP), hi = target * (1 + OVER_BAND);
             boolean inBand = Math.abs(vel - target) <= target * READY_BAND;
@@ -134,6 +145,7 @@ public class Flywheel {
     public double getVelS() { return s.getVelocity(); }
     public double getVolts() { return volts; }
     public double getPower() { return power; }
+    public double getRampedTarget() { return cmd; }
     public boolean isAtSpeed() { return atSpeed; }
     public DcMotorEx motorD() { return d; }
     public DcMotorEx motorS() { return s; }
