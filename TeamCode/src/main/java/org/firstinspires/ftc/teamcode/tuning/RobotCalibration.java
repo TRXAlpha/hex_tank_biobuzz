@@ -36,8 +36,8 @@ import java.util.List;
  *   6 TURRET POSITIONS (manual)       left stick moves the turret, D-pad saves FRONT/RIGHT/BACK/LEFT.
  *   7 CAMERA           (manual)       tape 100 cm + 170 cm -> camera pitch + distance scale.
  */
-@Config
-@TeleOp(name = "ROBOT CALIBRATION", group = "tuning")
+//@Config
+//@TeleOp(name = "ROBOT CALIBRATION", group = "tuning")
 public class RobotCalibration extends OpMode {
     public static int PIPELINE = 2;
     public static double REF_NEAR_CM = 100, REF_FAR_CM = 170;   // camera step: tape distances

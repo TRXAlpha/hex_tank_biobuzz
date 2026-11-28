@@ -27,7 +27,7 @@ import org.firstinspires.ftc.teamcode.Flywheel;
  * Shots long: lower SHOT_SPEED. Shots short: raise it. Then CIRCLE.
  * Flywheel values (V_CAP, RAMP, MIN_POWER, ...) are NOT saved by CIRCLE: write the good ones in Flywheel.java.
  */
-@TeleOp(name = "FLYWHEEL TUNE", group = "tuning")
+//@TeleOp(name = "FLYWHEEL TUNE", group = "tuning")
 public class FlywheelTune extends OpMode {
     private Flywheel fw;
     private DcMotor stagiu, intake;
