@@ -44,6 +44,8 @@ import java.util.List;
  *   Circle hold    unjam (intake + stagiu reverse)
  *   Square         flywheel on/off (on at start)
  *   Share          forget the CELL and scan again
+ *   L2 hold        DEAD MAN: stagiu runs forward, no checks at all (flywheel speed, aim). Release = stops.
+ *                  Intake still follows L1. Circle (unjam) wins over L2.
  *   R1             FREEZE turret ON/OFF: turret gets no power at all (camera, pot, scan ignored).
  *                  While frozen, R2 shoots as soon as the flywheel is at speed; auto-fire is off.
  * Alliance: BLUE (fixed in this file).
@@ -344,14 +346,16 @@ public class TeleopSafeBlue extends OpMode {
         boolean feed = fw.isAtSpeed() && ((autoFire && !fixed && !frozen && ok) || (hold && r2Ready));
 
         // ---------- intake + stagiu (one write each per loop) ----------
+        boolean deadMan = gamepad1.left_trigger > 0.5;              // L2: stagiu forward, no checks
         if (gamepad1.circle)  { intake.setPower(-1); stagiu.setPower(-1); }
+        else if (deadMan)     { intake.setPower(feed || gamepad1.left_bumper ? 1 : 0); stagiu.setPower(1); }
         else if (feed)        { intake.setPower(1);  stagiu.setPower(1); }
         else                  { intake.setPower(gamepad1.left_bumper ? 1 : 0); stagiu.setPower(0); }
 
         // ---------- screen ----------
         telemetry.addData("TURRET (touchpad)", fixed ? "FIXED " + fixedName : (haveAim ? "AIM" : "AIM - scanning"));
         telemetry.addData("AUTO-FIRE (Triangle)", autoFire ? (fixed ? "ON (only in AIM)" : "ON") : "OFF - hold R2");
-        telemetry.addData("SHOOT", hold ? (feed ? "R2: FIRING" : "R2: waiting for " + (fw.isAtSpeed() ? "turret" : "speed")) : why);
+        telemetry.addData("SHOOT", gamepad1.left_trigger > 0.5 ? "L2 DEAD MAN: stagiu ON (no checks)" : hold ? (feed ? "R2: FIRING" : "R2: waiting for " + (fw.isAtSpeed() ? "turret" : "speed")) : why);
         telemetry.addData("Speed", "%.0f / %.0f", fw.getVelocity(), fw.getTarget());
         telemetry.addData("Tags / dist (cam)", "%d / %.0f cm (%.0f)", tags, dist, camDist);
         telemetry.addData("Turret aim", frozen ? "FROZEN (R1 to unfreeze)" : aimSrc);

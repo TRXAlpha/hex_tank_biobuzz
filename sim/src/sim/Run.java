@@ -282,6 +282,16 @@ public class Run {
                 frozenMove[0], frozenShots[0], errEnd[0]);
         check("R1 freeze: turret does not move, R2 shoots, R1 again aims", frozenMove[0] < 0.005 && frozenShots[0] > 0 && errEnd[0] < 3);
 
+        // S5: L2 dead man: flywheel OFF (Square) -> stagiu still runs while L2 is held, stops on release
+        World.reset(); place(0, -150, 90, 0.663);
+        final double[] stagOn = {0}, stagAfter = {0};
+        run(TeleopSafeBlue::new, 5, (t, op) -> { World.pad.square = t > 0.5 && t < 0.6; World.pad.left_trigger = t > 2 && t < 3 ? 1 : 0; },
+            op -> { double s2 = World.t - run0;
+                    if (s2 > 2.1 && s2 < 2.9) stagOn[0] = Math.max(stagOn[0], World.m("stagiu").power);
+                    if (s2 > 3.2) stagAfter[0] = Math.max(stagAfter[0], Math.abs(World.m("stagiu").power)); });
+        System.out.printf("   S5 L2 dead man with the flywheel OFF: stagiu %.1f while held, %.1f after release%n", stagOn[0], stagAfter[0]);
+        check("L2 dead man: stagiu runs with no checks, stops on release", stagOn[0] == 1.0 && stagAfter[0] == 0.0);
+
         // burst speed: R2 held 3 s on target, spin-up threshold 90 % vs 95 %
         for (double sd : new double[]{0.90, 0.95}) {
             Flywheel.SPUN_DOWN = sd;
